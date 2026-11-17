@@ -181,7 +181,7 @@ function renderRole() {
   if (revealed || S.me.role === 'jesus' || S.status === 'ended') {
     card.style.borderColor = r.color;
     card.innerHTML = `<div class="em">${r.emoji}</div><div class="rn" style="color:${r.color}">${r.name}</div>
-      <div class="muted">${r.team}</div><p style="margin:8px 0 4px">${r.goal}</p><p class="muted" style="margin:4px 0">${r.power}</p>
+      <div class="muted">${r.team}</div><p style="margin:8px 0 4px">${r.goal}</p><p class="muted" style="margin:4px 0">${r.power(S.nightSlots || {})}</p>
       ${S.me.role !== 'jesus' && S.status !== 'ended' ? '<div class="muted">(탭하면 다시 가려져요)</div>' : ''}`;
   } else {
     card.style.borderColor = '';
@@ -203,11 +203,7 @@ function dayResultHtml(r) {
     <p class="muted">과반수 기준: 전체 ${r.total}표 중 ${r.threshold}표 이상 (예수님 표는 2표)</p><p><b>${outcome}</b></p></div>`;
 }
 const NIGHT_TITLE = { disciple: '🕊️ 밤 투표 · 살릴 사람', pharisee: '📜 밤 투표 · 죽일 사람', traitor: '🪙 밤 투표 · 죽일 사람' };
-const NIGHT_DESC = {
-  disciple: '제자 표를 가장 많이 받은 <b>2명</b>은 오늘 밤 죽지 않아요. (2등이 동률이면 1등만)',
-  pharisee: '바리새인 표를 가장 많이 받은 <b>2명</b>이 오늘 밤 죽어요. (2등이 동률이면 재투표)',
-  traitor: '배신자 표를 가장 많이 받은 <b>1명</b>이 오늘 밤 죽어요. (1등이 동률이면 재투표)',
-};
+
 function nightHtml(nv) {
   if (nv.kind === 'jesus') {
     const left = nv.powersLeft === null ? '매일 밤 쓸 수 있어요' : `남은 횟수: ${nv.powersLeft}번`;
@@ -219,13 +215,14 @@ function nightHtml(nv) {
   }
   const team = nv.tally && nv.tally.length ? `<div class="tally">우리 팀 현재 표: ${nv.tally.map(t => `<span>${esc(nameOf(t.pid))} ${t.n}</span>`).join('')}</div>` : '';
   if (nv.stage === 'vote') {
-    return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">${NIGHT_DESC[nv.kind]} 누구에게나 투표할 수 있어요.</p>
+    return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">${esc(slotRule(nv.kind, nv.count))} 누구에게나 투표할 수 있어요.</p>
       ${voteGrid(S.players.filter(p => p.alive), nv.myVote, 'night')}${team}</div>`;
   }
   if (nv.stage === 'runoff') {
     return `<div class="vote-sec"><h2>🔁 재투표</h2><p class="muted">동률이 나와서, 아래 사람들 중 <b>${nv.slots}명</b>을 다시 골라요.</p>
       ${voteGrid(S.players.filter(p => nv.candidates.includes(p.pid)), nv.myVote, 'night')}${team}</div>`;
   }
+  if (nv.stage === 'off') return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">이번 게임에서는 ${esc(ROLE_INFO[nv.kind].name)}의 밤 투표가 없어요.</p></div>`;
   return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">밤 투표가 마감됐어요. 아침에 결과가 발표돼요.</p></div>`;
 }
 function renderVote() {

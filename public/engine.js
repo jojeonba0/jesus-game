@@ -31,6 +31,7 @@
       status: 'lobby', phase: 'day', round: 0, capacity: null, // 총 인원 (null = 제한 없음, 최대 40)
       traitorRooms: ['traitor'],
       jesusPowers: 1, jesusUsed: 0, // 예수님 능력(밤 살인 무효화) 사용 가능 횟수, 0 = 매일 밤
+      nightSlots: { disciple: 2, pharisee: 2, traitor: 1 },
       players: [], // {pid, token, name, role, alive, aliases:{방: 익명N}}
       chats: { jesus: [], pharisee: [], traitor: [] },
       dayVote: null, night: null, announce: null, winner: null, log: [],
@@ -79,16 +80,22 @@
     Object.entries(tally).forEach(([pid, n]) => { if (n > 0) (byN[n] = byN[n] || []).push(pid); });
     return Object.keys(byN).map(Number).sort((a, b) => b - a).map(n => ({ n, pids: byN[n] }));
   }
-  // 제자: 상위 2명 보호. 2등이 여러 명이면 1등만 보호 (1등이 여러 명이면 1등 모두)
-  function pickProtect(tally) {
-    const g = groupsOf(tally);
-    if (!g.length) return [];
-    if (g[0].pids.length >= 2) return g[0].pids.slice();
-    return g[0].pids.concat(g[1] && g[1].pids.length === 1 ? g[1].pids : []);
+  // 제자: 상위 n명 보호. 자리를 넘치는 동률은 빼고 보호 (예: 2명일 때 2등이 동률이면 1등만). 1등끼리 넘치면 1등 모두
+  function pickProtect(tally, n) {
+    if (!(n > 0)) return [];
+    const chosen = [];
+    for (const grp of groupsOf(tally)) {
+      const left = n - chosen.length;
+      if (left <= 0) break;
+      if (grp.pids.length <= left) chosen.push(...grp.pids);
+      else { if (!chosen.length) chosen.push(...grp.pids); break; }
+    }
+    return chosen;
   }
-  // 바리새인(2명)·배신자(1명): 상위 slots명 사망. 자리를 넘치는 동률이 생기면 그 사람들끼리 재투표
+  // 바리새인·배신자: 상위 slots명 사망 (기본 2명·1명). 자리를 넘치는 동률이 생기면 그 사람들끼리 재투표
   function pickKill(tally, slots) {
     const chosen = [];
+    if (!(slots > 0)) return { chosen, runoff: null };
     for (const grp of groupsOf(tally)) {
       const left = slots - chosen.length;
       if (left <= 0) break;
@@ -97,7 +104,8 @@
     }
     return { chosen, runoff: null };
   }
-  const KILL_SLOTS = { pharisee: 2, traitor: 1 };
+  const DEFAULT_SLOTS = { disciple: 2, pharisee: 2, traitor: 1 }; // 밤 투표로 살리는/죽이는 인원 (운영자가 0~5명으로 설정)
+  const slotsOf = room => ({ ...DEFAULT_SLOTS, ...(room.nightSlots || {}) });
   const RUNOFF = '__runoff__';
   const TEAM_NAME = { disciple: '제자', pharisee: '바리새인', traitor: '배신자' };
 
@@ -109,10 +117,11 @@
     const n = room.night;
     if (!n || !n.open) return;
     n.open = false;
-    const protect = pickProtect(tallyOf(room, n.ballots.disciple));
+    const slots = slotsOf(room);
+    const protect = pickProtect(tallyOf(room, n.ballots.disciple), slots.disciple);
     n.result = { protect, kills: { pharisee: [], traitor: [] } };
     for (const team of ['pharisee', 'traitor']) {
-      const r = pickKill(tallyOf(room, n.ballots[team]), KILL_SLOTS[team]);
+      const r = pickKill(tallyOf(room, n.ballots[team]), slots[team]);
       n.result.kills[team] = r.chosen;
       n.runoff[team] = r.runoff ? { ...r.runoff, ballots: {} } : null;
       if (r.runoff) addLog(room, `🔁 ${TEAM_NAME[team]} 재투표: ${namesOf(room, r.runoff.candidates)} 중 ${r.runoff.slots}명`);
@@ -199,7 +208,8 @@
     return {
       t: 'state', as: 'admin', v: ver, code: room.code, status: room.status, phase: room.phase, round: room.round, capacity: room.capacity || null,
       traitorRooms: room.traitorRooms || ['traitor'], chatKeys: activeChatKeys(room), winner: room.winner,
-      jesusPowers: room.jesusPowers, jesusUsed: room.jesusUsed, powersLeft: powersLeft(room),
+      jesusPowers: room.jesusPowers, jesusUsed: room.jesusUsed, powersLeft: powersLeft(room), nightSlots: slotsOf(room),
+      undoRound: (room.history || []).length ? room.history[room.history.length - 1].round : null,
       players: room.players.map(p => ({ pid: p.pid, name: p.name, role: p.role, alive: p.alive, aliases: p.aliases || {}, online: isOn(seen, p.pid) })),
       chats: Object.fromEntries(Object.entries(room.chats).map(([k, msgs]) => [k, msgs.map(m => ({ ...m, name: nameOf(room, m.pid) }))])),
       dayVote: room.dayVote, night: room.night, announce: room.announce, endNote: room.endNote || null,
@@ -219,7 +229,7 @@
         key: k, name: CHAT_NAMES[k], myAlias: (p.aliases || {})[k] || null,
         msgs: room.chats[k].map(m => ({ alias: m.alias, text: m.text, ts: m.ts, mine: m.pid === p.pid, sys: m.sys, jesus: m.jesus })),
       })),
-      announce: room.announce, endNote: room.endNote || null, dayVote: null, nightVote: null,
+      announce: room.announce, endNote: room.endNote || null, nightSlots: slotsOf(room), dayVote: null, nightVote: null,
     };
     const dv = room.dayVote;
     if (dv && room.status === 'playing') {
@@ -232,7 +242,9 @@
       } else if (NIGHT_VOTERS.includes(p.role)) {
         const team = p.role, r = team !== 'disciple' ? n.runoff[team] : null;
         const tally = list => Object.entries(list).map(([pid, c]) => ({ pid, n: c })).sort((a, b) => b.n - a.n);
-        if (n.open) v.nightVote = { kind: team, stage: 'vote', myVote: n.ballots[team][p.pid] || null, tally: tally(tallyOf(room, n.ballots[team])) };
+        const count = slotsOf(room)[team];
+        if (!count) v.nightVote = { kind: team, stage: 'off' };
+        else if (n.open) v.nightVote = { kind: team, stage: 'vote', count, myVote: n.ballots[team][p.pid] || null, tally: tally(tallyOf(room, n.ballots[team])) };
         else if (r) v.nightVote = { kind: team, stage: 'runoff', candidates: r.candidates, slots: r.slots, myVote: r.ballots[p.pid] || null, tally: tally(tallyOf(room, r.ballots)) };
         else v.nightVote = { kind: team, stage: 'closed' };
       }
@@ -287,6 +299,7 @@
         if (room.status !== 'playing' || !n) return '지금은 밤 투표 시간이 아니에요.';
         if (!p.alive) return '제외된 사람은 투표할 수 없어요.';
         if (!NIGHT_VOTERS.includes(p.role)) return NOCHANGE;
+        if (!slotsOf(room)[p.role]) return '이번 게임에서는 이 역할의 밤 투표가 없어요.';
         let box, allowed = null;
         if (n.open) box = n.ballots[p.role];
         else if (p.role !== 'disciple' && n.runoff[p.role]) { box = n.runoff[p.role].ballots; allowed = n.runoff[p.role].candidates; }
@@ -350,6 +363,8 @@
         const jp = Math.floor(+msg.jesusPowers);
         room.jesusPowers = jp >= 0 && jp <= 10 ? jp : 1;
         room.jesusUsed = 0;
+        const ns = msg.nightSlots || {}, clamp = (x, d) => { const k = Math.floor(+x); return k >= 0 && k <= 5 ? k : d; };
+        room.nightSlots = { disciple: clamp(ns.disciple, 2), pharisee: clamp(ns.pharisee, 2), traitor: clamp(ns.traitor, 1) };
         ps.forEach(p => { p.role = assign[p.pid]; p.alive = true; p.aliases = {}; });
         // 채팅 이름: 방마다 '익명+번호'를 무작위로. 예수님만 실명.
         for (const k of CHAT_KEYS) {
@@ -360,11 +375,11 @@
           members.filter(p => p.role === 'jesus').forEach(p => { p.aliases[k] = `✝️ 예수님 (${p.name})`; });
         }
         room.status = 'playing'; room.phase = 'day'; room.round = 1; room.winner = null; room.endNote = null;
-        room.dayVote = null; room.night = null; room.announce = null;
+        room.dayVote = null; room.night = null; room.announce = null; room.history = [];
         room.chats = { jesus: [], pharisee: [], traitor: [] };
         room.log = [];
         const jesus = ps.find(p => p.role === 'jesus');
-        addLog(room, `게임 시작 (${ps.length}명, ${msg.mode === 'manual' ? '직접 배정' : '랜덤 배정'}) · 예수님: ${jesus.name} · 능력 ${room.jesusPowers === 0 ? '매일 밤' : room.jesusPowers + '번'}`);
+        addLog(room, `게임 시작 (${ps.length}명, ${msg.mode === 'manual' ? '직접 배정' : '랜덤 배정'}) · 예수님: ${jesus.name} · 능력 ${room.jesusPowers === 0 ? '매일 밤' : room.jesusPowers + '번'} · 밤 투표: 제자 ${room.nightSlots.disciple}명 보호, 바리새인 ${room.nightSlots.pharisee}명·배신자 ${room.nightSlots.traitor}명 지목`);
         return null;
       }
       case 'phase': {
@@ -375,7 +390,14 @@
           for (const k of CHAT_KEYS) room.chats[k].push({ sys: true, text: `🌙 ${room.round}번째 밤이 시작되었습니다. 밤 투표도 열렸어요.`, ts: Date.now() });
           addLog(room, `🌙 ${room.round}번째 밤 (밤 투표 시작)`);
         } else {
+          // 되돌리기용: 아침 발표 직전 상태를 저장 (최근 10개)
+          const snap = {
+            round: room.round, jesusUsed: room.jesusUsed, announce: room.announce,
+            alive: Object.fromEntries(room.players.map(p => [p.pid, p.alive])),
+            night: JSON.parse(JSON.stringify(room.night)),
+          };
           const e = resolveNight(room);
+          if (e !== RUNOFF && !e) { room.history = (room.history || []).concat([snap]).slice(-10); }
           if (e === RUNOFF) return null; // 투표 마감은 저장하고, 재투표가 끝날 때까지 밤 유지
           if (e) return e;
           if (room.status !== 'playing') return null; // 밤 결과로 게임이 끝남
@@ -410,6 +432,18 @@
         else if (room.status === 'ended' && room.winner && !checkWinner(room)) { room.status = 'playing'; room.winner = null; }
         return null;
       }
+      case 'undoNight': {
+        const h = room.history || [];
+        if (room.status === 'lobby' || !h.length) return '되돌릴 밤이 없어요.';
+        const snap = h.pop();
+        room.players.forEach(p => { if (p.pid in snap.alive) p.alive = snap.alive[p.pid]; });
+        room.round = snap.round; room.jesusUsed = snap.jesusUsed; room.announce = snap.announce;
+        room.night = { ...snap.night, open: true, result: null, runoff: { pharisee: null, traitor: null } }; // 밤 투표 다시 열기 (기존 표 유지)
+        room.phase = 'night'; room.status = 'playing'; room.winner = null; room.endNote = null; room.dayVote = null;
+        for (const k of CHAT_KEYS) room.chats[k].push({ sys: true, text: `↩️ 운영자가 ${room.round}번째 밤으로 되돌렸어요. 밤 투표가 다시 열렸어요.`, ts: Date.now() });
+        addLog(room, `↩️ ${room.round}번째 밤(아침 발표 직전)으로 되돌림 · 그 뒤 사망은 취소, 밤 투표 다시 열림`);
+        return null;
+      }
       case 'endGame': {
         if (room.status !== 'playing') return NOCHANGE;
         // 강제 종료 판정: 살아 있는 바리새인이 그 외 사람보다 많으면 바리새인 승, 적거나 같으면 예수님+제자 승
@@ -423,7 +457,7 @@
       }
       case 'toLobby':
         room.status = 'lobby'; room.phase = 'day'; room.round = 0; room.winner = null; room.endNote = null;
-        room.dayVote = null; room.night = null; room.announce = null; room.jesusUsed = 0;
+        room.dayVote = null; room.night = null; room.announce = null; room.jesusUsed = 0; room.history = [];
         room.players.forEach(p => { p.role = null; p.alive = true; p.aliases = {}; });
         room.chats = { jesus: [], pharisee: [], traitor: [] }; room.log = [];
         return null;
