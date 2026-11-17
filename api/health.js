@@ -1,10 +1,14 @@
 // 연결 상태 확인 (GET /api/health) — 브라우저로 열어서 저장소가 잘 연결됐는지 봅니다
-const { store, kind, hasStore } = require('../lib/store.js');
+const { store, kind, hasStore, usedKey } = require('../lib/store.js');
 const NAMES = { redis: 'Upstash Redis', supabase: 'Supabase', memory: '없음 (임시 메모리)' };
 
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const out = { 저장소: NAMES[kind] };
+  if (usedKey) out.사용한_설정 = usedKey;
+  // 문제를 찾기 쉽게, 저장소와 관련된 설정 '이름'만 보여줌 (값은 절대 보여주지 않음)
+  out.보이는_저장소_설정 = Object.keys(process.env).filter(k => /POSTGRES|SUPABASE|DATABASE_URL|KV_REST|UPSTASH|REDIS/i.test(k)).sort();
+  if (process.env.VERCEL_ENV) out.배포_환경 = process.env.VERCEL_ENV;
   try {
     await store.exists('TEST');
     out.상태 = hasStore ? '✅ 정상 연결됨' : '⚠️ 저장소가 연결되지 않았어요';
