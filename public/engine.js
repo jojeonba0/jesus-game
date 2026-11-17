@@ -202,7 +202,7 @@
       jesusPowers: room.jesusPowers, jesusUsed: room.jesusUsed, powersLeft: powersLeft(room),
       players: room.players.map(p => ({ pid: p.pid, name: p.name, role: p.role, alive: p.alive, aliases: p.aliases || {}, online: isOn(seen, p.pid) })),
       chats: Object.fromEntries(Object.entries(room.chats).map(([k, msgs]) => [k, msgs.map(m => ({ ...m, name: nameOf(room, m.pid) }))])),
-      dayVote: room.dayVote, night: room.night, announce: room.announce,
+      dayVote: room.dayVote, night: room.night, announce: room.announce, endNote: room.endNote || null,
       log: room.log,
     };
   }
@@ -219,7 +219,7 @@
         key: k, name: CHAT_NAMES[k], myAlias: (p.aliases || {})[k] || null,
         msgs: room.chats[k].map(m => ({ alias: m.alias, text: m.text, ts: m.ts, mine: m.pid === p.pid, sys: m.sys, jesus: m.jesus })),
       })),
-      announce: room.announce, dayVote: null, nightVote: null,
+      announce: room.announce, endNote: room.endNote || null, dayVote: null, nightVote: null,
     };
     const dv = room.dayVote;
     if (dv && room.status === 'playing') {
@@ -359,7 +359,7 @@
           others.forEach((p, i) => { p.aliases[k] = `익명${nums[i]}`; });
           members.filter(p => p.role === 'jesus').forEach(p => { p.aliases[k] = `✝️ 예수님 (${p.name})`; });
         }
-        room.status = 'playing'; room.phase = 'day'; room.round = 1; room.winner = null;
+        room.status = 'playing'; room.phase = 'day'; room.round = 1; room.winner = null; room.endNote = null;
         room.dayVote = null; room.night = null; room.announce = null;
         room.chats = { jesus: [], pharisee: [], traitor: [] };
         room.log = [];
@@ -410,13 +410,19 @@
         else if (room.status === 'ended' && room.winner && !checkWinner(room)) { room.status = 'playing'; room.winner = null; }
         return null;
       }
-      case 'endGame':
+      case 'endGame': {
         if (room.status !== 'playing') return NOCHANGE;
-        room.status = 'ended'; room.winner = null; room.night = null; room.dayVote = null;
-        addLog(room, '운영자가 게임을 끝냈어요.');
+        // 강제 종료 판정: 살아 있는 바리새인이 그 외 사람보다 많으면 바리새인 승, 적거나 같으면 예수님+제자 승
+        const alive = room.players.filter(p => p.alive);
+        const ph = alive.filter(p => p.role === 'pharisee').length, others = alive.length - ph;
+        room.status = 'ended'; room.night = null; room.dayVote = null;
+        room.winner = ph > others ? 'pharisee' : 'jesus';
+        room.endNote = `강제 종료 판정: 살아남은 바리새인 ${ph}명 vs 그 외 ${others}명`;
+        addLog(room, `🏁 운영자가 게임을 끝냄 · ${room.endNote} → ${WIN_TEXT[room.winner]}`);
         return null;
+      }
       case 'toLobby':
-        room.status = 'lobby'; room.phase = 'day'; room.round = 0; room.winner = null;
+        room.status = 'lobby'; room.phase = 'day'; room.round = 0; room.winner = null; room.endNote = null;
         room.dayVote = null; room.night = null; room.announce = null; room.jesusUsed = 0;
         room.players.forEach(p => { p.role = null; p.alive = true; p.aliases = {}; });
         room.chats = { jesus: [], pharisee: [], traitor: [] }; room.log = [];

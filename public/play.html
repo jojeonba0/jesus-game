@@ -144,7 +144,7 @@ function render() {
   if (ended) {
     const w = WIN_INFO[S.winner];
     const myWin = S.winner && ((S.winner === 'jesus' && (me.role === 'jesus' || me.role === 'disciple')) || S.winner === me.role);
-    banner.innerHTML = w ? `<div style="font-size:2.6rem">${w.emoji}</div>${w.text}<div class="muted">${myWin ? '🎉 당신의 팀이 이겼어요!' : '아쉽게도 졌어요.'}</div>` : '게임이 종료되었어요.';
+    banner.innerHTML = w ? `<div style="font-size:2.6rem">${w.emoji}</div>${w.text}${S.endNote ? `<div class="muted" style="font-weight:400">${esc(S.endNote)}</div>` : ''}<div class="muted">${myWin ? '🎉 당신의 팀이 이겼어요!' : '아쉽게도 졌어요.'}</div>` : '게임이 종료되었어요.';
     banner.classList.remove('hidden');
   } else if (!me.alive) {
     banner.innerHTML = '💀 당신은 게임에서 제외되었어요.<div class="muted">끝까지 지켜봐 주세요. 채팅과 투표는 할 수 없어요.</div>';

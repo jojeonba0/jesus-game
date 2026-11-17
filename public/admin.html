@@ -270,7 +270,7 @@ function renderGame() {
   const wb = $('winBox');
   if (ended) {
     const w = WIN_INFO[S.winner];
-    wb.innerHTML = w ? `<div style="font-size:3rem">${w.emoji}</div><h2 style="font-size:1.6rem">${w.text}</h2><p class="muted">참가자 화면에 모든 역할이 공개되었어요.</p>` : '<h2>게임이 종료되었어요</h2>';
+    wb.innerHTML = w ? `<div style="font-size:3rem">${w.emoji}</div><h2 style="font-size:1.6rem">${w.text}</h2>${S.endNote ? `<p>${esc(S.endNote)}</p>` : ''}<p class="muted">참가자 화면에 모든 역할이 공개되었어요.</p>` : '<h2>게임이 종료되었어요</h2>';
     wb.classList.remove('hidden');
   } else wb.classList.add('hidden');
 
@@ -401,7 +401,11 @@ function renderChats() {
 }
 
 $('phaseBtn').onclick = () => conn.send({ t: 'phase' });
-$('endBtn').onclick = async () => { if (await ask('승패 판정 없이 게임을 끝낼까요?', '게임 종료', true)) conn.send({ t: 'endGame' }); };
+$('endBtn').onclick = async () => {
+  const alive = S.players.filter(p => p.alive), ph = alive.filter(p => p.role === 'pharisee').length, others = alive.length - ph;
+  const win = ph > others ? '📜 바리새인 승리' : '✝️ 예수님과 제자들의 승리';
+  if (await ask(`지금 게임을 끝낼까요?\n살아남은 바리새인 ${ph}명 vs 그 외 ${others}명\n→ ${win}로 판정돼요.`, '게임 종료', true)) conn.send({ t: 'endGame' });
+};
 $('lobbyBtn').onclick = async () => { if (await ask('대기실로 돌아갈까요?\n역할과 채팅이 초기화되고, 같은 참가자들로 다시 시작할 수 있어요.', '대기실로')) { manual = {}; conn.send({ t: 'toLobby' }); } };
 </script>
 </body>
