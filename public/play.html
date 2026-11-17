@@ -153,8 +153,9 @@ function render() {
 
   // 낮/밤
   $('phaseBox').innerHTML = ended ? `<div class="ic">🏁</div><b>게임 종료</b>` : S.phase === 'night'
-    ? `<div class="ic">🌙</div><b>${S.round}번째 밤</b><div class="muted">팀 채팅방에서 몰래 이야기하세요. 모두 익명이에요.</div>`
-    : `<div class="ic">☀️</div><b>${S.round}번째 아침</b><div class="muted">모두 얼굴을 보고 직접 대화하세요. 채팅은 밤에 열려요.</div>`;
+    ? `<div class="ic">🌙</div><b>${S.round}번째 밤</b><div class="muted">팀 채팅방에서 몰래 이야기하고, 밤 투표를 하세요. 예수님 말고는 모두 익명이에요.</div>`
+    : `<div class="ic">☀️</div><b>${S.round}번째 아침</b><div class="muted">모두 얼굴을 보고 직접 대화하세요. 채팅은 밤에 열려요.</div>
+       ${S.announce && S.announce.round === S.round ? `<div class="announce">📢 ${esc(S.announce.text)}</div>` : ''}`;
 
   // 예수님 공개
   const jesus = S.players.find(p => p.role === 'jesus');
@@ -180,7 +181,7 @@ function renderRole() {
   if (revealed || S.me.role === 'jesus' || S.status === 'ended') {
     card.style.borderColor = r.color;
     card.innerHTML = `<div class="em">${r.emoji}</div><div class="rn" style="color:${r.color}">${r.name}</div>
-      <div class="muted">${r.team}</div><p style="margin:8px 0 4px">${r.goal}</p>
+      <div class="muted">${r.team}</div><p style="margin:8px 0 4px">${r.goal}</p><p class="muted" style="margin:4px 0">${r.power}</p>
       ${S.me.role !== 'jesus' && S.status !== 'ended' ? '<div class="muted">(탭하면 다시 가려져요)</div>' : ''}`;
   } else {
     card.style.borderColor = '';
@@ -188,21 +189,58 @@ function renderRole() {
   }
 }
 
+const nameOf = pid => (S.players.find(p => p.pid === pid) || {}).name || '?';
+function voteGrid(list, myVote, kind) {
+  return `<div class="vote-grid">${list.map(p => `<button class="${myVote === p.pid ? 'sel primary' : ''}" data-k="${kind}" data-t="${p.pid}">${esc(p.name)}${p.pid === S.me.pid ? ' (나)' : ''}</button>`).join('')}</div>
+    ${myVote ? `<p style="margin:8px 0 0"><button class="small" data-k="${kind}" data-t="">투표 취소</button></p>` : ''}`;
+}
+function dayResultHtml(r) {
+  const outcome = r.eliminated ? `⚖️ <b>${esc(nameOf(r.eliminated))}</b>님이 과반수로 죽었어요.`
+    : r.reason === 'jesus' ? '✝️ 예수님이 과반수를 받았지만, 예수님은 아침 투표로 죽지 않아요.'
+    : `과반수(${r.threshold}표)를 넘긴 사람이 없어 아무도 죽지 않았어요.`;
+  return `<div class="vote-sec"><h2>🗳️ 아침 투표 결과</h2>
+    ${r.rows.length ? r.rows.map(x => `<div class="counter"><span>${esc(x.name)}</span><span class="n">${x.n}</span></div>`).join('') : '<p class="muted">아무도 투표하지 않았어요.</p>'}
+    <p class="muted">과반수 기준: 전체 ${r.total}표 중 ${r.threshold}표 이상 (예수님 표는 2표)</p><p><b>${outcome}</b></p></div>`;
+}
+const NIGHT_TITLE = { disciple: '🕊️ 밤 투표 · 살릴 사람', pharisee: '📜 밤 투표 · 죽일 사람', traitor: '🪙 밤 투표 · 죽일 사람' };
+const NIGHT_DESC = {
+  disciple: '제자 표를 가장 많이 받은 <b>2명</b>은 오늘 밤 죽지 않아요. (2등이 동률이면 1등만)',
+  pharisee: '바리새인 표를 가장 많이 받은 <b>2명</b>이 오늘 밤 죽어요. (2등이 동률이면 재투표)',
+  traitor: '배신자 표를 가장 많이 받은 <b>1명</b>이 오늘 밤 죽어요. (1등이 동률이면 재투표)',
+};
+function nightHtml(nv) {
+  if (nv.kind === 'jesus') {
+    const left = nv.powersLeft === null ? '매일 밤 쓸 수 있어요' : `남은 횟수: ${nv.powersLeft}번`;
+    const can = nv.cancel || nv.powersLeft !== 0;
+    return `<div class="vote-sec"><h2>✝️ 예수님 능력</h2>
+      <p class="muted">오늘 밤 바리새인과 배신자의 살인을 모두 무효로 만들어요. ${left}. 아침이 될 때까지 켜고 끌 수 있고, 켠 채로 아침이 되면 1번 쓴 것으로 쳐요.</p>
+      <button class="big ${nv.cancel ? 'primary' : ''}" data-jc="${nv.cancel ? '0' : '1'}" ${can ? '' : 'disabled'}>
+        ${nv.cancel ? '✅ 오늘 밤 살인 무효화 사용 중 (누르면 취소)' : can ? '오늘 밤 살인 무효화하기' : '능력을 모두 사용했어요'}</button></div>`;
+  }
+  const team = nv.tally && nv.tally.length ? `<div class="tally">우리 팀 현재 표: ${nv.tally.map(t => `<span>${esc(nameOf(t.pid))} ${t.n}</span>`).join('')}</div>` : '';
+  if (nv.stage === 'vote') {
+    return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">${NIGHT_DESC[nv.kind]} 누구에게나 투표할 수 있어요.</p>
+      ${voteGrid(S.players.filter(p => p.alive), nv.myVote, 'night')}${team}</div>`;
+  }
+  if (nv.stage === 'runoff') {
+    return `<div class="vote-sec"><h2>🔁 재투표</h2><p class="muted">동률이 나와서, 아래 사람들 중 <b>${nv.slots}명</b>을 다시 골라요.</p>
+      ${voteGrid(S.players.filter(p => nv.candidates.includes(p.pid)), nv.myVote, 'night')}${team}</div>`;
+  }
+  return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">밤 투표가 마감됐어요. 아침에 결과가 발표돼요.</p></div>`;
+}
 function renderVote() {
-  const box = $('voteBox'), v = S.vote;
-  if (!v || S.status !== 'playing') { box.classList.add('hidden'); return; }
-  box.classList.remove('hidden');
-  if (v.open) {
-    const targets = S.players.filter(p => p.alive && p.pid !== S.me.pid);
-    box.innerHTML = `<h2>🗳️ 투표 중 <span class="muted">(${v.voted}명 투표함)</span></h2>
-      ${S.me.alive ? `<p class="muted">게임에서 제외할 사람을 고르세요. 누가 누구에게 투표했는지는 운영자만 봅니다.</p>
-      <div class="vote-grid">${targets.map(p => `<button class="${v.myVote === p.pid ? 'sel primary' : ''}" data-vote="${p.pid}">${esc(p.name)}</button>`).join('')}</div>
-      ${v.myVote ? '<p><button class="small" data-vote="">투표 취소</button></p>' : ''}` : '<p class="muted">제외된 사람은 투표할 수 없어요.</p>'}`;
-    box.querySelectorAll('[data-vote]').forEach(b => b.onclick = () => conn.send({ t: 'vote', target: b.dataset.vote || null }));
-  } else if (v.result) {
-    box.innerHTML = `<h2>🗳️ 투표 결과</h2>${v.result.rows.length ? v.result.rows.map(r => `<div class="counter"><span>${esc(r.name)}</span><span class="n">${r.n}</span></div>`).join('') : '<p class="muted">아무도 투표하지 않았어요.</p>'}
-      ${v.result.tie ? '<p class="muted">동률이에요. 운영자의 판단을 기다려 주세요.</p>' : ''}`;
-  } else box.classList.add('hidden');
+  const box = $('voteBox'), parts = [];
+  const dv = S.dayVote;
+  if (dv && dv.open) {
+    parts.push(`<div class="vote-sec"><h2>🗳️ 아침 투표 <span class="muted">(${dv.voted}명 투표함)</span></h2>` + (S.me.alive
+      ? `<p class="muted">과반수 표를 받은 <b>1명</b>만 죽어요. ${dv.myWeight === 2 ? '<b>당신의 표는 2표예요.</b> ' : ''}예수님은 아침 투표로 죽지 않아요.</p>${voteGrid(S.players.filter(p => p.alive), dv.myVote, 'day')}`
+      : '<p class="muted">제외된 사람은 투표할 수 없어요.</p>') + '</div>');
+  } else if (dv && dv.result) parts.push(dayResultHtml(dv.result));
+  if (S.nightVote) parts.push(nightHtml(S.nightVote));
+  box.classList.toggle('hidden', !parts.length);
+  box.innerHTML = parts.join('');
+  box.querySelectorAll('[data-k]').forEach(b => b.onclick = () => conn.send({ t: b.dataset.k === 'day' ? 'vote' : 'nightVote', target: b.dataset.t || null }));
+  box.querySelectorAll('[data-jc]').forEach(b => b.onclick = () => conn.send({ t: 'jesusCancel', on: b.dataset.jc === '1' }));
 }
 
 function renderChat() {
@@ -221,10 +259,10 @@ function renderChat() {
   tabs.querySelectorAll('[data-room]').forEach(b => b.onclick = () => { curRoom = b.dataset.room; lastChatSig = ''; renderChat(); });
 
   $('chatTitle').textContent = room ? `💬 ${room.name}` : '채팅';
-  $('aliasInfo').innerHTML = room && room.myAlias ? `이 방에서 내 익명 이름: <b>${esc(room.myAlias)}</b>` : '';
+  $('aliasInfo').innerHTML = !room || !room.myAlias ? '' : S.me.role === 'jesus' ? '예수님은 실명으로 보여요' : `이 방에서 내 이름: <b>${esc(room.myAlias)}</b>`;
   const canChat = !!room && S.status === 'playing' && S.phase === 'night' && S.me.alive;
   $('chatIn').disabled = $('chatSend').disabled = !canChat;
-  $('chatIn').placeholder = canChat ? '메시지 입력 (익명)' : S.status !== 'playing' ? '게임이 끝났어요' : !S.me.alive ? '제외되어 채팅할 수 없어요' : '채팅은 밤에만 열려요';
+  $('chatIn').placeholder = canChat ? (S.me.role === 'jesus' ? '메시지 입력 (예수님은 실명으로 보여요)' : '메시지 입력 (익명)') : S.status !== 'playing' ? '게임이 끝났어요' : !S.me.alive ? '제외되어 채팅할 수 없어요' : '채팅은 밤에만 열려요';
   if (!room) { $('chat').innerHTML = ''; return; }
   const sig = room.key + ':' + room.msgs.length;
   if (otherNew && navigator.vibrate) navigator.vibrate(60);
@@ -237,7 +275,7 @@ function renderChat() {
   lastChatSig = sig;
   box.innerHTML = room.msgs.length ? room.msgs.map(m => m.sys
     ? `<div class="msg sys"><div class="bubble">${esc(m.text)}</div></div>`
-    : `<div class="msg ${m.mine ? 'mine' : ''}"><div class="who">${m.mine ? '나' : esc(m.alias)} · ${timeStr(m.ts)}</div><div class="bubble">${esc(m.text)}</div></div>`).join('')
+    : `<div class="msg ${m.mine ? 'mine' : ''} ${m.jesus ? 'jesus' : ''}"><div class="who">${m.mine ? `나 (${esc(m.alias)})` : esc(m.alias)} · ${timeStr(m.ts)}</div><div class="bubble">${esc(m.text)}</div></div>`).join('')
     : '<div class="msg sys"><div class="bubble">아직 대화가 없어요. 밤이 되면 같은 방 사람들끼리 익명으로 이야기할 수 있어요.</div></div>';
   if (!sameRoom || nearBottom || !newOthers) box.scrollTop = box.scrollHeight;
   if (newOthers && navigator.vibrate) navigator.vibrate(60);
