@@ -63,6 +63,7 @@
     <div class="panel">
       <div class="tabs hidden" id="chatTabs"></div>
       <div class="row between"><h2 style="margin:0" id="chatTitle">채팅</h2><span class="muted" id="aliasInfo"></span></div>
+      <div class="kakao hidden" id="kakaoBox"></div>
       <div class="chat" id="chat" style="margin-top:8px"></div>
       <form class="chat-input" id="chatForm">
         <input id="chatIn" maxlength="300" autocomplete="off">
@@ -257,6 +258,17 @@ function renderChat() {
 
   $('chatTitle').textContent = room ? `💬 ${room.name}` : '채팅';
   $('aliasInfo').innerHTML = !room || !room.myAlias ? '' : S.me.role === 'jesus' ? '예수님은 실명으로 보여요' : `이 방에서 내 이름: <b>${esc(room.myAlias)}</b>`;
+  // 운영자가 등록한 카카오톡 오픈채팅방
+  const kb = $('kakaoBox');
+  if (room && room.link) {
+    const nick = room.myAlias || '';
+    if (kb.dataset.sig !== room.link + nick) {
+      kb.dataset.sig = room.link + nick;
+      kb.innerHTML = `<a class="btn" href="${esc(room.link)}" target="_blank" rel="noopener">💬 카카오톡 오픈채팅방 들어가기</a>
+        <span class="muted">닉네임은 <b>${esc(nick)}</b>(으)로, ${S.me.role === 'jesus' ? '예수님은 실명이 보여도 괜찮아요.' : '프로필 사진 없이 <b>익명</b>으로 들어가세요.'}</span>`;
+    }
+    kb.classList.remove('hidden');
+  } else { kb.classList.add('hidden'); kb.dataset.sig = ''; }
   const canChat = !!room && S.status === 'playing' && S.phase === 'night' && S.me.alive;
   $('chatIn').disabled = $('chatSend').disabled = !canChat;
   $('chatIn').placeholder = canChat ? (S.me.role === 'jesus' ? '메시지 입력 (예수님은 실명으로 보여요)' : '메시지 입력 (익명)') : S.status !== 'playing' ? '게임이 끝났어요' : !S.me.alive ? '제외되어 채팅할 수 없어요' : '채팅은 밤에만 열려요';

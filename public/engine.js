@@ -32,6 +32,7 @@
       traitorRooms: ['traitor'],
       jesusPowers: 1, jesusUsed: 0, // 예수님 능력(밤 살인 무효화) 사용 가능 횟수, 0 = 매일 밤
       nightSlots: { disciple: 2, pharisee: 2, traitor: 1 },
+      chatLinks: { jesus: '', pharisee: '', traitor: '' }, // 운영자가 만든 카카오톡 오픈채팅방 링크 (해당 방 사람에게만 보임)
       players: [], // {pid, token, name, role, alive, aliases:{방: 익명N}}
       chats: { jesus: [], pharisee: [], traitor: [] },
       dayVote: null, night: null, announce: null, winner: null, log: [],
@@ -124,7 +125,11 @@
       const r = pickKill(tallyOf(room, n.ballots[team]), slots[team]);
       n.result.kills[team] = r.chosen;
       n.runoff[team] = r.runoff ? { ...r.runoff, ballots: {} } : null;
-      if (r.runoff) addLog(room, `🔁 ${TEAM_NAME[team]} 재투표: ${namesOf(room, r.runoff.candidates)} 중 ${r.runoff.slots}명`);
+      if (r.runoff) {
+        addLog(room, `🔁 ${TEAM_NAME[team]} 재투표: ${namesOf(room, r.runoff.candidates)} 중 ${r.runoff.slots}명`);
+        // 바리새인 방에만 알림 (배신자는 다른 방에 섞여 있을 수 있어 알리지 않음 → 투표 칸에만 표시)
+        if (team === 'pharisee') room.chats.pharisee.push({ sys: true, text: `🔁 동률이 나와 재투표가 필요해요: ${namesOf(room, r.runoff.candidates)} 중 ${r.runoff.slots}명. 재투표가 끝나야 아침이 와요.`, ts: Date.now() });
+      }
     }
     addLog(room, `🌙 밤 투표 마감 · 제자 보호: ${namesOf(room, protect) || '없음'} · 바리새인 지목: ${namesOf(room, n.result.kills.pharisee) || '없음'} · 배신자 지목: ${namesOf(room, n.result.kills.traitor) || '없음'}`);
   }
@@ -210,6 +215,7 @@
       traitorRooms: room.traitorRooms || ['traitor'], chatKeys: activeChatKeys(room), winner: room.winner,
       jesusPowers: room.jesusPowers, jesusUsed: room.jesusUsed, powersLeft: powersLeft(room), nightSlots: slotsOf(room),
       undoRound: (room.history || []).length ? room.history[room.history.length - 1].round : null,
+      chatLinks: room.chatLinks || { jesus: '', pharisee: '', traitor: '' },
       players: room.players.map(p => ({ pid: p.pid, name: p.name, role: p.role, alive: p.alive, aliases: p.aliases || {}, online: isOn(seen, p.pid) })),
       chats: Object.fromEntries(Object.entries(room.chats).map(([k, msgs]) => [k, msgs.map(m => ({ ...m, name: nameOf(room, m.pid) }))])),
       dayVote: room.dayVote, night: room.night, announce: room.announce, endNote: room.endNote || null,
@@ -227,6 +233,7 @@
       })),
       chats: chatRoomsOf(room, p).map(k => ({
         key: k, name: CHAT_NAMES[k], myAlias: (p.aliases || {})[k] || null,
+        link: room.status === 'playing' && p.alive ? ((room.chatLinks || {})[k] || null) : null, // 오픈채팅방 링크는 살아 있는 그 방 사람에게만
         msgs: room.chats[k].map(m => ({ alias: m.alias, text: m.text, ts: m.ts, mine: m.pid === p.pid, sys: m.sys, jesus: m.jesus })),
       })),
       announce: room.announce, endNote: room.endNote || null, nightSlots: slotsOf(room), dayVote: null, nightVote: null,
@@ -324,6 +331,16 @@
 
   function adminAction(room, msg) {
     switch (msg.t) {
+      case 'chatLinks': {
+        const links = msg.links || {}, out = {};
+        for (const k of CHAT_KEYS) {
+          const u = String(links[k] || '').trim().slice(0, 500);
+          if (u && !/^https?:\/\/\S+$/i.test(u)) return `${CHAT_NAMES[k]} 링크가 올바르지 않아요. https://open.kakao.com/... 형태로 붙여넣어 주세요.`;
+          out[k] = u;
+        }
+        room.chatLinks = out;
+        return null;
+      }
       case 'capacity': {
         if (room.status !== 'lobby') return '총 인원은 대기실에서만 바꿀 수 있어요.';
         if (msg.capacity == null) { room.capacity = null; return null; }

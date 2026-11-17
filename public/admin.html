@@ -51,6 +51,18 @@
       </div>
     </div>
 
+    <!-- 오픈채팅방 링크 -->
+    <div class="panel">
+      <div class="row between"><h2 style="margin:0">💬 카카오톡 오픈채팅방 링크</h2><span class="muted" id="linkState"></span></div>
+      <p class="muted">미리 만들어 둔 오픈채팅방 링크를 붙여넣으세요. 게임이 시작되면 각자 자기 역할 방의 링크만 보이고, 들어갈 때 쓸 익명 닉네임도 함께 안내돼요. 비워두면 사이트 채팅만 써요.</p>
+      <div class="links">
+        <label for="lkJesus">✝️ 예수님·제자 방<input id="lkJesus" placeholder="https://open.kakao.com/o/..." autocomplete="off"></label>
+        <label for="lkPharisee">📜 바리새인 방<input id="lkPharisee" placeholder="https://open.kakao.com/o/..." autocomplete="off"></label>
+        <label for="lkTraitor">🪙 배신자 방 <span class="muted" style="font-weight:400">(배신자를 배신자 전용 방에 넣을 때만 필요)</span><input id="lkTraitor" placeholder="https://open.kakao.com/o/..." autocomplete="off"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="primary" id="saveLinks">링크 저장</button></div>
+    </div>
+
     <!-- 대기실 -->
     <section id="lobbySec" class="hidden">
       <div class="cols">
@@ -189,11 +201,26 @@ function renderInvite() {
 $('copyBtn').onclick = async () => { try { await navigator.clipboard.writeText(joinUrl(S.code)); toast('링크를 복사했어요'); } catch (e) { getSelection().selectAllChildren($('link')); toast('복사가 막혀 있어요. 선택된 주소를 직접 복사하세요.'); } };
 $('shareBtn').onclick = () => navigator.share({ title: '예수님 게임', text: `참가 코드 ${S.code}`, url: joinUrl(S.code) }).catch(() => {});
 
+const LINK_INPUTS = { jesus: 'lkJesus', pharisee: 'lkPharisee', traitor: 'lkTraitor' };
+let linksDirty = false;
+Object.values(LINK_INPUTS).forEach(id => $(id).addEventListener('input', () => { linksDirty = true; $('linkState').textContent = '저장 안 됨'; }));
+$('saveLinks').onclick = () => {
+  const links = Object.fromEntries(Object.entries(LINK_INPUTS).map(([k, id]) => [k, $(id).value.trim()]));
+  conn.send({ t: 'chatLinks', links }); // 저장되면 아래 renderLinks가 '저장됨'으로 바꿔요 (실패하면 입력 내용 유지)
+};
+function renderLinks() {
+  const L = S.chatLinks || {};
+  if (linksDirty && Object.entries(LINK_INPUTS).every(([k, id]) => $(id).value.trim() === (L[k] || ''))) linksDirty = false;
+  if (!linksDirty) Object.entries(LINK_INPUTS).forEach(([k, id]) => { if (document.activeElement !== $(id)) $(id).value = L[k] || ''; });
+  const n = Object.values(L).filter(Boolean).length;
+  if (!linksDirty) $('linkState').textContent = n ? `✅ ${n}개 저장됨` : '등록된 링크 없음';
+}
 function render() {
   $('createSec').classList.add('hidden'); $('main').classList.remove('hidden');
   document.body.dataset.phase = S.status === 'playing' ? S.phase : 'day';
   $('statusPill').textContent = S.status === 'lobby' ? '대기실' : S.status === 'ended' ? '게임 종료' : `${S.round}번째 ${S.phase === 'night' ? '🌙 밤' : '☀️ 낮'}`;
   renderInvite();
+  renderLinks();
   $('lobbySec').classList.toggle('hidden', S.status !== 'lobby');
   $('gameSec').classList.toggle('hidden', S.status === 'lobby');
   if (S.status === 'lobby') renderLobby(); else renderGame();
@@ -292,8 +319,11 @@ function renderGame() {
   const runoff = S.night && (S.night.runoff.pharisee || S.night.runoff.traitor) && !S.night.open;
   const dayVoting = S.dayVote && S.dayVote.open;
   $('phaseBtn').disabled = ended || runoff || dayVoting;
-  $('phaseBtn').textContent = S.phase === 'day' ? '🌙 밤으로 전환 (채팅·밤 투표 열기)' : '☀️ 아침으로 전환 (밤 결과 발표)';
-  $('phaseHint').textContent = ended ? '' : dayVoting ? '아침 투표를 먼저 마감해 주세요.' : runoff ? '재투표를 끝내야 아침으로 넘어갈 수 있어요.'
+  $('phaseBtn').textContent = S.phase === 'day' ? '🌙 밤으로 전환 (채팅·밤 투표 열기)'
+    : runoff ? '🔁 재투표 중 · 끝나야 아침으로 넘어가요' : '☀️ 아침으로 (밤 투표 마감 · 결과 바로 적용)';
+  $('phaseHint').textContent = ended ? '' : dayVoting ? '아침 투표를 먼저 마감해 주세요.'
+    : runoff ? '동률이 나와 재투표가 필요해요. 오른쪽에서 재투표를 마감하거나 무작위로 정하면 아침으로 넘길 수 있어요.'
+    : S.phase === 'night' ? `지금은 ${S.round}번째 밤 · 넘기는 순간 투표가 마감되고 결과가 바로 적용돼요. 아직 투표 안 한 사람의 표는 빠져요. (동률이면 재투표가 열리고 밤이 계속돼요)`
     : S.phase === 'day' ? `지금은 ${S.round}번째 낮 · 직접 대화하고 아침 투표를 하는 시간이에요.`
     : `지금은 ${S.round}번째 밤 · 팀 채팅과 밤 투표 중이에요. 아침으로 넘기면 투표가 마감되고 결과가 발표돼요.`;
   $('endBtn').disabled = ended;
