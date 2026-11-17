@@ -21,23 +21,26 @@
 - 운영자가 배신자가 들어갈 방(예수님·제자 / 바리새인 / 배신자 전용)을 하나 이상 고릅니다. 여러 방에 넣으면 배신자는 탭으로 오가며 모두 참여하고, 익명 이름은 방마다 다릅니다.
 
 ## Vercel 배포
-1. 이 폴더를 GitHub 저장소에 올립니다.
-2. vercel.com → **Add New → Project** → 저장소 선택 → 설정은 그대로 두고 **Deploy**.
-3. 프로젝트의 **Storage** 탭 → **Upstash for Redis**(Marketplace) 생성 후 이 프로젝트에 연결합니다.
-   `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경변수가 자동으로 추가됩니다. (`UPSTASH_REDIS_REST_URL`/`_TOKEN` 이름도 인식)
-4. **Deployments → Redeploy** 해서 환경변수를 반영합니다.
+1. vercel.com → **Add New → Project** → 이 저장소 Import → 설정 그대로 **Deploy**.
+2. 프로젝트의 **Storage** 탭에서 저장소를 하나 연결합니다. 둘 중 아무거나 됩니다.
+   - **Supabase** (연결하면 `POSTGRES_URL`이 자동으로 들어옴, 표는 처음 쓸 때 자동 생성)
+   - **Upstash for Redis** (`KV_REST_API_URL`, `KV_REST_API_TOKEN`이 자동으로 들어옴)
+3. **Deployments → ⋯ → Redeploy** 로 다시 배포해 연결을 반영합니다.
+4. `https://내주소/api/health` 를 열어 `"상태": "✅ 정상 연결됨"` 이 나오는지 확인합니다.
 
-Redis를 연결하지 않으면 게임 화면에 "서버 저장소가 연결되지 않았어요"가 표시됩니다.
+저장소를 연결하지 않으면 게임 화면에 "서버 저장소가 연결되지 않았어요"가 표시됩니다.
+Supabase에서는 게임 데이터가 API로 공개되지 않는 `jesus_game` 스키마에 저장됩니다.
 
 ### 구조
 - `public/` 화면 (Vercel이 그대로 제공)
 - `public/engine.js` 게임 규칙 + 요청 처리 (서버와 미리보기가 같은 코드 사용)
 - `api/action.js` 모든 게임 요청 (`POST /api/action`), `api/qr.js` QR 이미지
-- `lib/store.js` Upstash Redis 저장소 (방은 마지막 변경 후 24시간 보관)
-- 화면은 1.2초(밤)~2.5초(낮)마다 새 상태를 받아옵니다. 바뀐 게 없으면 Redis 명령 1개만 씁니다.
+- `lib/store.js` 저장소 (Supabase 또는 Upstash Redis, 방은 마지막 변경 후 24시간 보관)
+- `api/health.js` 연결 상태 확인 (`GET /api/health`)
+- 화면은 1.2초(밤)~2.5초(낮)마다 새 상태를 받아옵니다. 바뀐 게 없으면 저장소 요청 1번만 씁니다.
 
 ## 로컬에서 실행
 ```
 npm install
-npm start      # http://localhost:3000  (Redis 환경변수가 없으면 메모리에 저장)
+npm start      # http://localhost:3000  (저장소 환경변수가 없으면 메모리에 저장)
 ```

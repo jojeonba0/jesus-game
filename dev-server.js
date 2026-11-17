@@ -28,6 +28,7 @@ http.createServer((req, res) => {
     req.on('end', () => { req.body = body; action(req, wrapRes(res)); });
     return;
   }
+  if (url.pathname === '/api/health') return require('./api/health.js')(req, wrapRes(res));
   if (url.pathname === '/api/qr') { req.query = Object.fromEntries(url.searchParams); return qr(req, wrapRes(res)); }
   const p = REWRITES[url.pathname] || url.pathname;
   const file = path.normalize(path.join(PUBLIC, p));
