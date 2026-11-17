@@ -1,0 +1,15 @@
+{
+  "name": "jesus-game",
+  "version": "1.0.0",
+  "description": "예수님 게임 - 실시간 마피아 변형 게임",
+  "scripts": {
+    "start": "node dev-server.js"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>예수님 게임 · 참가자</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .rolecard { text-align: center; cursor: pointer; user-select: none; }
+  .rolecard .em { font-size: 3.2rem; }
+  .rolecard .rn { font-size: 1.8rem; font-weight: 800; margin: 2px 0 4px; }
+  .banner { text-align: center; font-size: 1.1rem; font-weight: 700; }
+  .phasebox { text-align: center; padding: 18px; }
+  .phasebox .ic { font-size: 2.4rem; }
+  .vote-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+</style>
+</head>
+<body data-phase="day">
+<div class="wrap narrow">
+  <header class="top">
+    <h1>✝️ 예수님 게임</h1>
+    <div class="row">
+      <span class="muted">방 <b class="code" id="roomCode"></b></span>
+      <span class="conn" id="conn">연결 중…</span>
+    </div>
+  </header>
+
+  <!-- 참가 폼 -->
+  <section id="joinSec" class="panel hidden">
+    <h2>게임 참가</h2>
+    <p class="muted">이름은 운영자와 다른 참가자에게 보여요. 밤 채팅에서는 익명으로 표시됩니다.</p>
+    <input id="nameIn" maxlength="20" placeholder="이름" autocomplete="off">
+    <button class="primary big" id="joinBtn" style="margin-top:10px">참가하기</button>
+    <p id="joinErr" style="color:var(--danger)"></p>
+  </section>
+
+  <!-- 대기실 -->
+  <section id="lobbySec" class="hidden">
+    <div class="panel" style="text-align:center">
+      <div style="font-size:2.4rem">⏳</div>
+      <h2 style="margin:6px 0"><span id="myName"></span>님, 참가 완료!</h2>
+      <p class="muted">운영자가 게임을 시작하면 역할이 나타나요.</p>
+    </div>
+    <div class="panel">
+      <h2>참가자 <span class="muted" id="lobbyCount"></span></h2>
+      <div id="lobbyList" class="row"></div>
+    </div>
+    <button class="small" id="leaveBtn">나가기</button>
+  </section>
+
+  <!-- 게임 -->
+  <section id="gameSec" class="hidden">
+    <div class="panel banner hidden" id="banner"></div>
+
+    <div class="panel phasebox" id="phaseBox"></div>
+
+    <div class="panel" id="jesusBox"></div>
+
+    <div class="panel rolecard" id="roleCard"></div>
+
+    <div class="panel hidden" id="voteBox"></div>
+
+    <div class="panel">
+      <div class="tabs hidden" id="chatTabs"></div>
+      <div class="row between"><h2 style="margin:0" id="chatTitle">채팅</h2><span class="muted" id="aliasInfo"></span></div>
+      <div class="chat" id="chat" style="margin-top:8px"></div>
+      <form class="chat-input" id="chatForm">
+        <input id="chatIn" maxlength="300" autocomplete="off">
+        <button class="primary" id="chatSend">전송</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>참가자</h2>
+      <table><tbody id="plist"></tbody></table>
+    </div>
+  </section>
+</div>
+
+<script src="common.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const ROOM = (params.get('room') || '').toUpperCase();
+if (!ROOM) location.href = '/';
+$('roomCode').textContent = ROOM;
+const TKEY = 'jg.p.' + ROOM;
+let S = null, revealed = false, lastChatSig = '', curRoom = null, seen = {};
+
+const conn = connect({
+  onStatus: on => { $('conn').innerHTML = on ? '<span class="dot on"></span>연결됨' : '<span class="dot"></span>재연결 중…'; },
+  onOpen: () => {
+    const token = store(TKEY);
+    if (token) conn.send({ t: 'join', code: ROOM, token });
+    else if (DEMO && params.get('autoname')) conn.send({ t: 'join', code: ROOM, name: params.get('autoname') });
+    else showOnly('joinSec');
+  },
+  onMessage: m => {
+    if (m.t === 'joined') { store(TKEY, m.token); $('joinErr').textContent = ''; }
+    else if (m.t === 'joinFail') {
+      if (store(TKEY)) { store(TKEY, null); }
+      showOnly('joinSec'); $('joinErr').textContent = m.msg;
+    }
+    else if (m.t === 'kicked') { store(TKEY, null); S = null; showOnly('joinSec'); $('joinErr').textContent = '운영자가 대기실에서 내보냈어요.'; }
+    else if (m.t === 'error') toast(m.msg);
+    else if (m.t === 'state') { S = m; render(); }
+  },
+});
+
+function showOnly(id) { ['joinSec', 'lobbySec', 'gameSec'].forEach(s => $(s).classList.toggle('hidden', s !== id)); }
+
+$('joinBtn').onclick = () => {
+  const name = $('nameIn').value.trim();
+  if (!name) { $('joinErr').textContent = '이름을 입력해 주세요.'; return; }
+  conn.send({ t: 'join', code: ROOM, name });
+};
+$('nameIn').addEventListener('keydown', e => e.key === 'Enter' && $('joinBtn').click());
+$('leaveBtn').onclick = async () => { if (await ask('대기실에서 나갈까요?', '나가기')) { conn.send({ t: 'leave' }); store(TKEY, null); location.href = '/'; } };
+
+$('roleCard').onclick = () => { revealed = !revealed; renderRole(); };
+
+$('chatForm').onsubmit = e => {
+  e.preventDefault();
+  const text = $('chatIn').value.trim();
+  if (!text) return;
+  conn.send({ t: 'chat', text, room: curRoom }); $('chatIn').value = '';
+};
+
+function render() {
+  const playing = S.status !== 'lobby';
+  document.body.dataset.phase = S.status === 'playing' ? S.phase : 'day';
+  if (!playing) {
+    showOnly('lobbySec');
+    revealed = false; lastChatSig = ''; curRoom = null; seen = {};
+    $('myName').textContent = S.me.name;
+    $('lobbyCount').textContent = S.capacity ? `${S.players.length}/${S.capacity}명` : `${S.players.length}명`;
+    $('lobbyList').innerHTML = S.players.map(p => `<span class="tag" style="background:var(--panel2)"><span class="dot ${p.online ? 'on' : ''}"></span>${esc(p.name)}${p.pid === S.me.pid ? ' (나)' : ''}</span>`).join('');
+    return;
+  }
+  showOnly('gameSec');
+  const me = S.me, ended = S.status === 'ended';
+
+  // 배너
+  const banner = $('banner');
+  if (ended) {
+    const w = WIN_INFO[S.winner];
+    const myWin = S.winner && ((S.winner === 'jesus' && (me.role === 'jesus' || me.role === 'disciple')) || S.winner === me.role);
+    banner.innerHTML = w ? `<div style="font-size:2.6rem">${w.emoji}</div>${w.text}<div class="muted">${myWin ? '🎉 당신의 팀이 이겼어요!' : '아쉽게도 졌어요.'}</div>` : '게임이 종료되었어요.';
+    banner.classList.remove('hidden');
+  } else if (!me.alive) {
+    banner.innerHTML = '💀 당신은 게임에서 제외되었어요.<div class="muted">끝까지 지켜봐 주세요. 채팅과 투표는 할 수 없어요.</div>';
+    banner.classList.remove('hidden');
+  } else banner.classList.add('hidden');
+
+  // 낮/밤
+  $('phaseBox').innerHTML = ended ? `<div class="ic">🏁</div><b>게임 종료</b>` : S.phase === 'night'
+    ? `<div class="ic">🌙</div><b>${S.round}번째 밤</b><div class="muted">팀 채팅방에서 몰래 이야기하세요. 모두 익명이에요.</div>`
+    : `<div class="ic">☀️</div><b>${S.round}번째 아침</b><div class="muted">모두 얼굴을 보고 직접 대화하세요. 채팅은 밤에 열려요.</div>`;
+
+  // 예수님 공개
+  const jesus = S.players.find(p => p.role === 'jesus');
+  $('jesusBox').innerHTML = jesus
+    ? `<div class="row between"><span>✝️ 예수님은 <b style="font-size:1.15rem">${esc(jesus.name)}</b>님입니다${jesus.pid === me.pid ? ' (바로 당신!)' : ''}</span>${jesus.alive ? '' : '<span class="tag" style="background:var(--danger);color:#fff">제외됨</span>'}</div>`
+    : '';
+
+  renderRole();
+  renderVote();
+  renderChat();
+
+  // 참가자 목록
+  $('plist').innerHTML = S.players.map(p => `
+    <tr class="${p.alive ? '' : 'out'}"><td><span class="dot ${p.online ? 'on' : ''}"></span><span class="nm">${esc(p.name)}</span>${p.pid === me.pid ? ' <span class="muted">(나)</span>' : ''}</td>
+    <td>${p.role ? roleTag(p.role) : ''}</td><td style="text-align:right">${p.alive ? '' : '💀 제외'}</td></tr>`).join('');
+}
+
+function renderRole() {
+  if (!S || !S.me.role) return;
+  const r = ROLE_INFO[S.me.role];
+  const card = $('roleCard');
+  // 예수님은 어차피 공개라 항상 보여줌
+  if (revealed || S.me.role === 'jesus' || S.status === 'ended') {
+    card.style.borderColor = r.color;
+    card.innerHTML = `<div class="em">${r.emoji}</div><div class="rn" style="color:${r.color}">${r.name}</div>
+      <div class="muted">${r.team}</div><p style="margin:8px 0 4px">${r.goal}</p>
+      ${S.me.role !== 'jesus' && S.status !== 'ended' ? '<div class="muted">(탭하면 다시 가려져요)</div>' : ''}`;
+  } else {
+    card.style.borderColor = '';
+    card.innerHTML = `<div class="em">🂠</div><div style="font-weight:700">탭해서 내 역할 보기</div><div class="muted">주변 사람이 보지 않게 조심하세요</div>`;
+  }
+}
+
+function renderVote() {
+  const box = $('voteBox'), v = S.vote;
+  if (!v || S.status !== 'playing') { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  if (v.open) {
+    const targets = S.players.filter(p => p.alive && p.pid !== S.me.pid);
+    box.innerHTML = `<h2>🗳️ 투표 중 <span class="muted">(${v.voted}명 투표함)</span></h2>
+      ${S.me.alive ? `<p class="muted">게임에서 제외할 사람을 고르세요. 누가 누구에게 투표했는지는 운영자만 봅니다.</p>
+      <div class="vote-grid">${targets.map(p => `<button class="${v.myVote === p.pid ? 'sel primary' : ''}" data-vote="${p.pid}">${esc(p.name)}</button>`).join('')}</div>
+      ${v.myVote ? '<p><button class="small" data-vote="">투표 취소</button></p>' : ''}` : '<p class="muted">제외된 사람은 투표할 수 없어요.</p>'}`;
+    box.querySelectorAll('[data-vote]').forEach(b => b.onclick = () => conn.send({ t: 'vote', target: b.dataset.vote || null }));
+  } else if (v.result) {
+    box.innerHTML = `<h2>🗳️ 투표 결과</h2>${v.result.rows.length ? v.result.rows.map(r => `<div class="counter"><span>${esc(r.name)}</span><span class="n">${r.n}</span></div>`).join('') : '<p class="muted">아무도 투표하지 않았어요.</p>'}
+      ${v.result.tie ? '<p class="muted">동률이에요. 운영자의 판단을 기다려 주세요.</p>' : ''}`;
+  } else box.classList.add('hidden');
+}
+
+function renderChat() {
+  const rooms = S.chats || [];
+  if (!rooms.some(r => r.key === curRoom)) curRoom = rooms.length ? rooms[0].key : null;
+  const room = rooms.find(r => r.key === curRoom);
+  const cnt = r => r.msgs.filter(m => !m.sys).length;
+  // 다른 방 새 메시지 알림 (여러 방에 있는 배신자용)
+  let otherNew = false;
+  rooms.forEach(r => { if (seen[r.key] === undefined) seen[r.key] = cnt(r); else if (r.key !== curRoom && cnt(r) > seen[r.key]) otherNew = true; });
+  if (room) seen[room.key] = cnt(room);
+  const tabs = $('chatTabs');
+  tabs.classList.toggle('hidden', rooms.length < 2);
+  tabs.innerHTML = rooms.map(r => { const unread = cnt(r) - (seen[r.key] || 0);
+    return `<button class="small ${r.key === curRoom ? 'on' : ''}" data-room="${r.key}">${esc(r.name)}${unread > 0 ? ` <b style="color:var(--danger)">●${unread}</b>` : ''}</button>`; }).join('');
+  tabs.querySelectorAll('[data-room]').forEach(b => b.onclick = () => { curRoom = b.dataset.room; lastChatSig = ''; renderChat(); });
+
+  $('chatTitle').textContent = room ? `💬 ${room.name}` : '채팅';
+  $('aliasInfo').innerHTML = room && room.myAlias ? `이 방에서 내 익명 이름: <b>${esc(room.myAlias)}</b>` : '';
+  const canChat = !!room && S.status === 'playing' && S.phase === 'night' && S.me.alive;
+  $('chatIn').disabled = $('chatSend').disabled = !canChat;
+  $('chatIn').placeholder = canChat ? '메시지 입력 (익명)' : S.status !== 'playing' ? '게임이 끝났어요' : !S.me.alive ? '제외되어 채팅할 수 없어요' : '채팅은 밤에만 열려요';
+  if (!room) { $('chat').innerHTML = ''; return; }
+  const sig = room.key + ':' + room.msgs.length;
+  if (otherNew && navigator.vibrate) navigator.vibrate(60);
+  if (sig === lastChatSig) return;
+  const box = $('chat');
+  const sameRoom = lastChatSig.startsWith(room.key + ':');
+  const prevLen = sameRoom ? +lastChatSig.split(':')[1] : -1;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const newOthers = prevLen >= 0 && room.msgs.slice(prevLen).some(m => !m.mine && !m.sys);
+  lastChatSig = sig;
+  box.innerHTML = room.msgs.length ? room.msgs.map(m => m.sys
+    ? `<div class="msg sys"><div class="bubble">${esc(m.text)}</div></div>`
+    : `<div class="msg ${m.mine ? 'mine' : ''}"><div class="who">${m.mine ? '나' : esc(m.alias)} · ${timeStr(m.ts)}</div><div class="bubble">${esc(m.text)}</div></div>`).join('')
+    : '<div class="msg sys"><div class="bubble">아직 대화가 없어요. 밤이 되면 같은 방 사람들끼리 익명으로 이야기할 수 있어요.</div></div>';
+  if (!sameRoom || nearBottom || !newOthers) box.scrollTop = box.scrollHeight;
+  if (newOthers && navigator.vibrate) navigator.vibrate(60);
+}
+</script>
+</body>
+</html>

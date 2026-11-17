@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>예수님 게임 · 운영자</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .invite { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .invite .bigcode { font-size: 2.6rem; }
+  .phase-btn { font-size: 1.15rem; padding: 16px; width: 100%; font-weight: 800; }
+  .modes button.on { background: var(--text); color: var(--bg); }
+  .log { max-height: 260px; overflow-y: auto; font-size: .9rem; margin: 0; padding-left: 20px; }
+  .vbar { height: 8px; background: var(--danger); border-radius: 4px; }
+</style>
+</head>
+<body data-phase="day">
+<div class="wrap">
+  <header class="top">
+    <h1>🎩 운영자</h1>
+    <div class="row">
+      <span class="phase-pill" id="statusPill">-</span>
+      <span class="conn" id="conn">연결 중…</span>
+      <button class="small" id="newRoomBtn">새 방</button>
+    </div>
+  </header>
+
+  <!-- 방 만들기 -->
+  <section id="createSec" class="panel hidden" style="text-align:center">
+    <div style="font-size:3rem">✝️</div>
+    <h2>새 게임 방 만들기</h2>
+    <p class="muted">방을 만들면 참가 코드, 링크, QR이 생겨요. 참가자들이 들어오면 여기서 역할을 정하고 시작합니다.</p>
+    <button class="primary big" id="createBtn" style="max-width:320px">방 만들기</button>
+  </section>
+
+  <div id="main" class="hidden">
+    <!-- 초대 -->
+    <div class="panel">
+      <div class="invite">
+        <div class="qr"><img id="qrImg" alt="참가 QR"></div>
+        <div style="flex:1;min-width:220px">
+          <div class="muted">참가 코드</div>
+          <div class="code bigcode" id="bigCode"></div>
+          <div class="muted" style="word-break:break-all" id="link"></div>
+          <div class="row" style="margin-top:8px">
+            <button class="small" id="copyBtn">링크 복사</button>
+            <button class="small" id="shareBtn">공유</button>
+            <a class="btn small" id="fullQr" target="_blank">QR 크게 보기</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 대기실 -->
+    <section id="lobbySec" class="hidden">
+      <div class="cols">
+        <div class="panel">
+          <h2>들어온 사람 <span class="muted" id="lobbyCount"></span></h2>
+          <div class="cap">
+            <label for="capSel"><b>총 인원</b></label>
+            <select id="capSel"></select>
+            <span class="muted" id="capInfo"></span>
+          </div>
+          <table><tbody id="lobbyRows"></tbody></table>
+          <p class="muted" id="lobbyEmpty">아직 아무도 없어요. 코드나 QR, 링크를 공유하세요.</p>
+        </div>
+        <div class="panel">
+          <h2>역할 정하기</h2>
+          <div class="row modes" style="margin-bottom:10px">
+            <button id="modeRandom" class="on">🎲 랜덤 배정</button>
+            <button id="modeManual">✋ 직접 배정</button>
+          </div>
+          <div id="randomBox"></div>
+          <div id="manualBox" class="hidden"></div>
+          <div style="margin:12px 0">
+            <b>🪙 배신자가 들어갈 밤 채팅방</b> <span class="muted">(여러 개 선택 가능)</span>
+            <div class="row" style="margin-top:6px" id="trRooms">
+              <label class="tag" style="background:var(--panel2);padding:6px 10px;font-weight:600"><input type="checkbox" value="jesus" style="width:auto"> ✝️ 예수님·제자 방</label>
+              <label class="tag" style="background:var(--panel2);padding:6px 10px;font-weight:600"><input type="checkbox" value="pharisee" style="width:auto"> 📜 바리새인 방</label>
+              <label class="tag" style="background:var(--panel2);padding:6px 10px;font-weight:600"><input type="checkbox" value="traitor" style="width:auto" checked> 🪙 배신자 전용 방</label>
+            </div>
+            <p class="muted" style="margin:6px 0 0">여러 방에 넣으면 배신자는 그 방들의 대화를 모두 보고 말할 수 있어요. 익명 이름은 방마다 달라서 이름으로는 들키지 않아요.</p>
+          </div>
+          <p id="setupMsg" class="muted"></p>
+          <button class="primary big" id="startBtn">게임 시작</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 게임 -->
+    <section id="gameSec" class="hidden">
+      <div class="panel hidden" id="winBox" style="text-align:center"></div>
+
+      <div class="panel">
+        <button class="phase-btn primary" id="phaseBtn"></button>
+        <p class="muted" style="text-align:center;margin:8px 0 0" id="phaseHint"></p>
+      </div>
+
+      <div class="cols">
+        <div class="panel">
+          <h2>참가자 · 역할 <span class="muted" id="aliveCount"></span></h2>
+          <table>
+            <thead><tr><th>이름</th><th>역할</th><th>익명</th><th></th></tr></thead>
+            <tbody id="gameRows"></tbody>
+          </table>
+        </div>
+        <div class="panel" id="votePanel"></div>
+      </div>
+
+      <div class="panel">
+        <div class="row between"><h2 style="margin:0">💬 채팅방 모니터</h2><span class="muted">운영자에게는 실제 이름이 함께 보여요</span></div>
+        <div class="tabs" id="chatTabs" style="margin-top:10px"></div>
+        <div class="chat" id="chatView"></div>
+      </div>
+
+      <div class="panel">
+        <h2>기록</h2>
+        <ol class="log" id="logList"></ol>
+      </div>
+
+      <div class="row">
+        <button id="endBtn">게임 강제 종료</button>
+        <button id="lobbyBtn">대기실로 돌아가기 (같은 사람들로 다시)</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script>
+const AKEY = 'jg.admin';
+let S = null, mode = 'random', counts = null, manual = {}, chatTab = 'jesus', countsTouched = false;
+
+const conn = connect({
+  onStatus: on => { $('conn').innerHTML = on ? '<span class="dot on"></span>연결됨' : '<span class="dot"></span>재연결 중…'; },
+  onOpen: () => {
+    const a = store(AKEY);
+    if (a && a.code) conn.send({ t: 'admin', code: a.code, token: a.token });
+    else if (DEMO && new URLSearchParams(location.search).has('autocreate')) conn.send({ t: 'create' });
+    else showCreate();
+  },
+  onMessage: m => {
+    if (m.t === 'created') store(AKEY, { code: m.code, token: m.token });
+    else if (m.t === 'adminFail') { store(AKEY, null); showCreate(); toast('이전 방이 사라져서 새로 만들어야 해요.'); }
+    else if (m.t === 'error') toast(m.msg);
+    else if (m.t === 'state') { S = m; render(); }
+  },
+});
+
+function showCreate() { $('createSec').classList.remove('hidden'); $('main').classList.add('hidden'); $('statusPill').textContent = '방 없음'; }
+$('createBtn').onclick = () => conn.send({ t: 'create' });
+$('newRoomBtn').onclick = async () => {
+  if (S && !await ask('지금 방을 두고 새 방을 만들까요?\n지금 방 참가자는 새 코드로 다시 들어와야 해요.', '새 방 만들기')) return;
+  manual = {}; countsTouched = false; conn.send({ t: 'create' });
+};
+
+/* 초대 */
+let inviteCode = null;
+function renderInvite() {
+  if (inviteCode === S.code) return;
+  inviteCode = S.code;
+  const url = joinUrl(S.code);
+  $('bigCode').textContent = S.code;
+  $('link').textContent = url;
+  if (DEMO) {
+    $('qrImg').parentElement.innerHTML = '<div style="color:#555;font-size:.85rem;text-align:center;padding-top:60px">QR은<br>배포한 사이트에서<br>표시돼요</div>';
+    $('fullQr').style.display = 'none';
+  } else {
+    $('qrImg').src = 'api/qr?text=' + encodeURIComponent(url);
+    $('fullQr').href = 'api/qr?text=' + encodeURIComponent(url);
+  }
+  $('shareBtn').style.display = navigator.share ? '' : 'none';
+}
+$('copyBtn').onclick = async () => { try { await navigator.clipboard.writeText(joinUrl(S.code)); toast('링크를 복사했어요'); } catch (e) { getSelection().selectAllChildren($('link')); toast('복사가 막혀 있어요. 선택된 주소를 직접 복사하세요.'); } };
+$('shareBtn').onclick = () => navigator.share({ title: '예수님 게임', text: `참가 코드 ${S.code}`, url: joinUrl(S.code) }).catch(() => {});
+
+function render() {
+  $('createSec').classList.add('hidden'); $('main').classList.remove('hidden');
+  document.body.dataset.phase = S.status === 'playing' ? S.phase : 'day';
+  $('statusPill').textContent = S.status === 'lobby' ? '대기실' : S.status === 'ended' ? '게임 종료' : `${S.round}번째 ${S.phase === 'night' ? '🌙 밤' : '☀️ 낮'}`;
+  renderInvite();
+  $('lobbySec').classList.toggle('hidden', S.status !== 'lobby');
+  $('gameSec').classList.toggle('hidden', S.status === 'lobby');
+  if (S.status === 'lobby') renderLobby(); else renderGame();
+}
+
+/* ---------------- 대기실 ---------------- */
+function recommended(n) { return { pharisee: Math.max(1, Math.round(n / 4)), traitor: n >= 6 ? 1 : 0 }; }
+function renderLobby() {
+  const ps = S.players, n = ps.length;
+  $('lobbyCount').textContent = S.capacity ? `${n}/${S.capacity}명` : `${n}명`;
+  const capSel = $('capSel');
+  const opts = '<option value="">제한 없음</option>' + Array.from({ length: 38 }, (_, i) => i + 3)
+    .map(k => `<option value="${k}" ${k < n ? 'disabled' : ''}>${k}명</option>`).join('');
+  if (capSel.dataset.n !== String(n)) { capSel.innerHTML = opts; capSel.dataset.n = n; }
+  capSel.value = S.capacity ? String(S.capacity) : '';
+  $('capInfo').textContent = !S.capacity ? '누구나 들어올 수 있어요 (최대 40명)'
+    : n >= S.capacity ? '✅ 다 모였어요. 더는 들어올 수 없어요.' : `${S.capacity - n}명 더 들어올 수 있어요`;
+  $('lobbyEmpty').classList.toggle('hidden', n > 0);
+  $('lobbyRows').innerHTML = ps.map(p => `<tr><td><span class="dot ${p.online ? 'on' : ''}"></span>${esc(p.name)}</td>
+    <td style="text-align:right"><button class="small" data-kick="${p.pid}">내보내기</button></td></tr>`).join('');
+  $('lobbyRows').querySelectorAll('[data-kick]').forEach(b => b.onclick = () => {
+    const p = S.players.find(x => x.pid === b.dataset.kick);
+    ask(`${p.name}님을 대기실에서 내보낼까요?`, '내보내기', true).then(ok => ok && conn.send({ t: 'kick', pid: p.pid }));
+  });
+
+  if (!countsTouched || !counts) counts = recommended(n);
+  $('modeRandom').classList.toggle('on', mode === 'random');
+  $('modeManual').classList.toggle('on', mode === 'manual');
+  $('randomBox').classList.toggle('hidden', mode !== 'random');
+  $('manualBox').classList.toggle('hidden', mode !== 'manual');
+
+  let msg = '', ok = n >= 3;
+  if (mode === 'random') {
+    const disciples = n - 1 - counts.pharisee - counts.traitor;
+    const ctr = (key, label) => `<div class="counter"><span>${label}</span><span class="row"><button class="small" data-c="${key}" data-d="-1">−</button><span class="n">${counts[key]}</span><button class="small" data-c="${key}" data-d="1">+</button></span></div>`;
+    $('randomBox').innerHTML = `
+      <div class="counter"><span>✝️ 예수님</span><span class="n">1</span></div>
+      ${ctr('pharisee', '📜 바리새인')}${ctr('traitor', '🪙 배신자')}
+      <div class="counter"><span>🕊️ 제자 (나머지)</span><span class="n">${Math.max(0, disciples)}</span></div>`;
+    $('randomBox').querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+      countsTouched = true; counts[b.dataset.c] = Math.max(0, counts[b.dataset.c] + +b.dataset.d); renderLobby();
+    });
+    if (n < 3) msg = '최소 3명이 필요해요.';
+    else if (disciples < 0) { msg = '역할 수가 인원보다 많아요.'; ok = false; }
+    else if (counts.pharisee < 1) { msg = '바리새인이 최소 1명 필요해요.'; ok = false; }
+    else msg = `${n}명 · 예수님 1, 제자 ${disciples}, 바리새인 ${counts.pharisee}, 배신자 ${counts.traitor}`;
+  } else {
+    ps.forEach(p => { if (!manual[p.pid]) manual[p.pid] = ''; });
+    $('manualBox').innerHTML = ps.length ? `<table>${ps.map(p => `<tr><td>${esc(p.name)}</td><td>
+      <select data-m="${p.pid}"><option value="">— 선택 —</option>${Object.entries(ROLE_INFO).map(([k, r]) => `<option value="${k}" ${manual[p.pid] === k ? 'selected' : ''}>${r.emoji} ${r.name}</option>`).join('')}</select>
+      </td></tr>`).join('')}</table>
+      <div class="row" style="margin-top:8px"><button class="small" id="fillDisc">빈 칸은 모두 제자로</button></div>` : '<p class="muted">참가자가 들어오면 여기서 역할을 고를 수 있어요.</p>';
+    $('manualBox').querySelectorAll('[data-m]').forEach(s => s.onchange = () => { manual[s.dataset.m] = s.value; renderLobby(); });
+    const fd = $('fillDisc'); if (fd) fd.onclick = () => { ps.forEach(p => { if (!manual[p.pid]) manual[p.pid] = 'disciple'; }); renderLobby(); };
+    const roles = ps.map(p => manual[p.pid]);
+    const cnt = k => roles.filter(r => r === k).length;
+    if (n < 3) { msg = '최소 3명이 필요해요.'; }
+    else if (roles.some(r => !r)) { msg = `아직 역할이 없는 사람이 ${roles.filter(r => !r).length}명 있어요.`; ok = false; }
+    else if (cnt('jesus') !== 1) { msg = '예수님은 정확히 1명이어야 해요.'; ok = false; }
+    else if (!cnt('pharisee')) { msg = '바리새인이 최소 1명 필요해요.'; ok = false; }
+    else msg = `예수님 1, 제자 ${cnt('disciple')}, 바리새인 ${cnt('pharisee')}, 배신자 ${cnt('traitor')}`;
+  }
+  $('setupMsg').textContent = msg;
+  $('setupMsg').style.color = ok ? '' : 'var(--danger)';
+  $('startBtn').disabled = !ok;
+}
+$('modeRandom').onclick = () => { mode = 'random'; renderLobby(); };
+$('modeManual').onclick = () => { mode = 'manual'; renderLobby(); };
+$('capSel').onchange = () => conn.send({ t: 'capacity', capacity: $('capSel').value ? +$('capSel').value : null });
+$('startBtn').onclick = async () => {
+  const n = S.players.length;
+  if (S.capacity && n < S.capacity && !await ask(`총 인원 ${S.capacity}명 중 ${n}명만 들어왔어요.\n지금 있는 ${n}명으로 시작할까요?`, `${n}명으로 시작`)) return;
+  const offline = S.players.filter(p => !p.online).length;
+  if (offline && !await ask(`연결이 끊긴 사람이 ${offline}명 있어요. 그래도 시작할까요?`, '시작')) return;
+  const traitorRooms = [...document.querySelectorAll('#trRooms input:checked')].map(i => i.value);
+  const hasTraitor = mode === 'random' ? counts.traitor > 0 : Object.values(manual).includes('traitor');
+  if (hasTraitor && !traitorRooms.length) return toast('배신자가 들어갈 채팅방을 하나 이상 골라 주세요.');
+  conn.send({ t: 'start', mode, counts, assign: manual, traitorRooms });
+};
+
+/* ---------------- 게임 ---------------- */
+function renderGame() {
+  const ended = S.status === 'ended';
+  const wb = $('winBox');
+  if (ended) {
+    const w = WIN_INFO[S.winner];
+    wb.innerHTML = w ? `<div style="font-size:3rem">${w.emoji}</div><h2 style="font-size:1.6rem">${w.text}</h2><p class="muted">참가자 화면에 모든 역할이 공개되었어요.</p>` : '<h2>게임이 종료되었어요</h2>';
+    wb.classList.remove('hidden');
+  } else wb.classList.add('hidden');
+
+  $('phaseBtn').disabled = ended;
+  $('phaseBtn').textContent = S.phase === 'day' ? '🌙 밤으로 전환 (채팅 열기)' : '☀️ 아침으로 전환 (채팅 닫기)';
+  $('phaseHint').textContent = ended ? '' : S.phase === 'day'
+    ? `지금은 ${S.round}번째 낮 · 참가자들이 직접 대화하는 시간이에요.`
+    : `지금은 ${S.round}번째 밤 · 각 팀이 익명 채팅방에서 대화 중이에요.`;
+  $('endBtn').disabled = ended;
+
+  const alive = S.players.filter(p => p.alive).length;
+  $('aliveCount').textContent = `· 남은 사람 ${alive}/${S.players.length}`;
+  $('gameRows').innerHTML = S.players.map(p => `<tr class="${p.alive ? '' : 'out'}">
+    <td><span class="dot ${p.online ? 'on' : ''}"></span><span class="nm">${esc(p.name)}</span></td>
+    <td>${roleTag(p.role)}</td><td class="muted">${Object.entries(p.aliases || {}).map(([k, a]) => Object.keys(p.aliases).length > 1 ? `${ROOM_ICON[k]}${esc(a)}` : esc(a)).join(' ')}</td>
+    <td style="text-align:right">${p.alive ? `<button class="small danger" data-el="${p.pid}">제외</button>` : `<button class="small" data-rv="${p.pid}">복귀</button>`}</td></tr>`).join('');
+  $('gameRows').querySelectorAll('[data-el]').forEach(b => b.onclick = () => {
+    const p = S.players.find(x => x.pid === b.dataset.el);
+    ask(`${p.name}(${ROLE_INFO[p.role].name})님을 게임에서 제외할까요?`, '제외', true).then(ok => ok && conn.send({ t: 'eliminate', pid: p.pid }));
+  });
+  $('gameRows').querySelectorAll('[data-rv]').forEach(b => b.onclick = () => conn.send({ t: 'revive', pid: b.dataset.rv }));
+
+  renderVote(); renderChats();
+  $('logList').innerHTML = S.log.map(l => `<li>${timeStr(l.ts)} · ${esc(l.text)}</li>`).join('');
+  $('logList').scrollTop = $('logList').scrollHeight;
+}
+
+function renderVote() {
+  const box = $('votePanel'), v = S.vote, ended = S.status === 'ended';
+  const name = pid => (S.players.find(p => p.pid === pid) || {}).name || '?';
+  if (!v) {
+    box.innerHTML = `<h2>🗳️ 투표</h2><p class="muted">참가자들이 자기 폰으로 제외할 사람에게 투표해요. 운영자는 누가 누구를 뽑았는지 볼 수 있어요.</p>
+      <button class="primary" id="vOpen" ${ended ? 'disabled' : ''}>투표 시작</button>`;
+    $('vOpen').onclick = () => conn.send({ t: 'voteOpen' });
+    return;
+  }
+  const aliveCnt = S.players.filter(p => p.alive).length;
+  const tally = {};
+  Object.entries(v.ballots).forEach(([voter, t]) => (tally[t] = tally[t] || []).push(name(voter)));
+  const rows = Object.entries(tally).sort((a, b) => b[1].length - a[1].length);
+  const max = rows.length ? rows[0][1].length : 1;
+  box.innerHTML = `<h2>🗳️ 투표 ${v.open ? '진행 중' : '마감'} <span class="muted">(${Object.keys(v.ballots).length}/${aliveCnt}명)</span></h2>
+    ${rows.map(([t, voters]) => `<div style="margin-bottom:8px"><div class="row between"><b>${esc(name(t))}</b><span>${voters.length}표</span></div>
+      <div class="vbar" style="width:${voters.length / max * 100}%"></div><div class="muted">← ${voters.map(esc).join(', ')}</div></div>`).join('') || '<p class="muted">아직 표가 없어요.</p>'}
+    <div class="row">
+      ${v.open ? '<button class="primary" id="vClose">투표 마감</button>' : ''}
+      ${!v.open && v.result && v.result.top ? `<button class="danger" id="vExec">${esc(name(v.result.top))}님 제외</button>` : ''}
+      ${!v.open && v.result && v.result.tie ? '<span class="muted">동률이에요. 직접 판단해 제외하거나 다시 투표하세요.</span>' : ''}
+      <button id="vClear">${v.open ? '투표 취소' : '닫기'}</button>
+    </div>`;
+  if ($('vClose')) $('vClose').onclick = () => conn.send({ t: 'voteClose' });
+  if ($('vExec')) $('vExec').onclick = () => conn.send({ t: 'eliminate', pid: v.result.top, clearVote: true });
+  $('vClear').onclick = () => conn.send({ t: 'voteClear' });
+}
+
+const CHAT_TABS = [['jesus', '✝️ 예수님·제자'], ['pharisee', '📜 바리새인'], ['traitor', '🪙 배신자']];
+const ROOM_ICON = { jesus: '✝️', pharisee: '📜', traitor: '🪙' };
+let lastChatSig = '';
+function renderChats() {
+  const tabs = CHAT_TABS.filter(([k]) => (S.chatKeys || []).includes(k));
+  if (!tabs.some(([k]) => k === chatTab)) chatTab = 'jesus';
+  $('chatTabs').innerHTML = tabs.map(([k, label]) => `<button class="small ${k === chatTab ? 'on' : ''}" data-tab="${k}">${label} (${S.chats[k].filter(m => !m.sys).length})</button>`).join('');
+  $('chatTabs').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { chatTab = b.dataset.tab; lastChatSig = ''; renderChats(); });
+  const msgs = S.chats[chatTab];
+  const sig = chatTab + msgs.length;
+  if (sig === lastChatSig) return;
+  lastChatSig = sig;
+  const box = $('chatView');
+  box.innerHTML = msgs.length ? msgs.map(m => m.sys ? `<div class="msg sys"><div class="bubble">${esc(m.text)}</div></div>`
+    : `<div class="msg"><div class="who">${esc(m.alias)} <b>(${esc(m.name)})</b> · ${timeStr(m.ts)}</div><div class="bubble">${esc(m.text)}</div></div>`).join('')
+    : '<div class="msg sys"><div class="bubble">아직 대화가 없어요.</div></div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+$('phaseBtn').onclick = () => conn.send({ t: 'phase' });
+$('endBtn').onclick = async () => { if (await ask('승패 판정 없이 게임을 끝낼까요?', '게임 종료', true)) conn.send({ t: 'endGame' }); };
+$('lobbyBtn').onclick = async () => { if (await ask('대기실로 돌아갈까요?\n역할과 채팅이 초기화되고, 같은 참가자들로 다시 시작할 수 있어요.', '대기실로')) { manual = {}; conn.send({ t: 'toLobby' }); } };
+</script>
+</body>
+</html>

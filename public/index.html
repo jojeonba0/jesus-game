@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>예수님 게임</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 16px; }
+  .hero h1 { font-size: 2.2rem; margin: 6px 0; }
+  .box { width: 100%; max-width: 420px; text-align: left; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <div style="font-size:3.4rem">✝️</div>
+  <h1>예수님 게임</h1>
+  <p class="muted">예수님 · 제자 · 바리새인 · 배신자<br>낮에는 얼굴 보고 대화하고, 밤에는 팀 채팅으로 몰래 이야기하세요.</p>
+
+  <div class="panel box">
+    <h2>참가하기</h2>
+    <input id="code" class="code" maxlength="4" placeholder="방 코드 4자리" style="text-transform:uppercase;font-size:1.3rem;text-align:center">
+    <button class="primary big" style="margin-top:10px" id="go">참가</button>
+  </div>
+  <a class="btn" href="/admin">🎩 운영자로 방 만들기</a>
+</div>
+<script>
+  const go = () => { const c = document.getElementById('code').value.trim().toUpperCase(); if (c.length === 4) location.href = '/join?room=' + c; };
+  document.getElementById('go').onclick = go;
+  document.getElementById('code').addEventListener('keydown', e => e.key === 'Enter' && go());
+</script>
+</body>
+</html>
