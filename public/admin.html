@@ -317,11 +317,11 @@ function renderGame() {
   } else wb.classList.add('hidden');
 
   const runoff = S.night && (S.night.runoff.pharisee || S.night.runoff.traitor) && !S.night.open;
-  const dayVoting = S.dayVote && S.dayVote.open;
+  const dayVoting = S.dayVote && (S.dayVote.open || (S.dayVote.result && S.dayVote.result.reason === 'tie'));
   $('phaseBtn').disabled = ended || runoff || dayVoting;
   $('phaseBtn').textContent = S.phase === 'day' ? '🌙 밤으로 전환 (채팅·밤 투표 열기)'
     : runoff ? '🔁 재투표 중 · 끝나야 아침으로 넘어가요' : '☀️ 아침으로 (밤 투표 마감 · 결과 바로 적용)';
-  $('phaseHint').textContent = ended ? '' : dayVoting ? '아침 투표를 먼저 마감해 주세요.'
+  $('phaseHint').textContent = ended ? '' : dayVoting ? (S.dayVote.open ? '아침 투표를 먼저 마감해 주세요.' : '아침 투표가 동률이에요. 누구를 죽일지 먼저 골라 주세요.')
     : runoff ? '동률이 나와 재투표가 필요해요. 오른쪽에서 재투표를 마감하거나 무작위로 정하면 아침으로 넘길 수 있어요.'
     : S.phase === 'night' ? `지금은 ${S.round}번째 밤 · 넘기는 순간 투표가 마감되고 결과가 바로 적용돼요. 아직 투표 안 한 사람의 표는 빠져요. (동률이면 재투표가 열리고 밤이 계속돼요)`
     : S.phase === 'day' ? `지금은 ${S.round}번째 낮 · 직접 대화하고 아침 투표를 하는 시간이에요.`
@@ -370,21 +370,31 @@ function renderVote() {
   if (ended) { box.innerHTML = '<h2>🗳️ 투표</h2><p class="muted">게임이 끝났어요.</p>'; return; }
   if (S.phase === 'day') {
     const dv = S.dayVote;
-    const total = S.players.filter(p => p.alive).reduce((a, p) => a + dayW(p), 0), thr = Math.floor(total / 2) + 1;
     if (!dv) {
       box.innerHTML = `<h2>🗳️ 아침 투표</h2>
-        <p class="muted">과반수(${total}표 중 <b>${thr}표</b> 이상)를 받은 1명만 죽어요. 예수님 표는 2표, 예수님은 아침 투표로 죽지 않아요.</p>
+        <p class="muted">가장 많이 받은 <b>1명</b>이 죽어요 (1표여도). 1등이 동률이면 운영자가 골라요. 예수님 표는 2표, 예수님은 아침 투표로 죽지 않아요.</p>
         <button class="primary" id="dvOpen">아침 투표 시작</button>`;
       $('dvOpen').onclick = () => conn.send({ t: 'dayVoteOpen' });
     } else if (dv.open) {
-      box.innerHTML = `<h2>🗳️ 아침 투표 진행 중 <span class="muted">(${Object.keys(dv.ballots).length}명 투표 · 과반수 ${thr}표)</span></h2>
+      box.innerHTML = `<h2>🗳️ 아침 투표 진행 중 <span class="muted">(${Object.keys(dv.ballots).length}명 투표)</span></h2>
         ${tallyHtml(dv.ballots, dayW)}
         <div class="row"><button class="primary" id="dvClose">투표 마감 (결과 바로 적용)</button><button id="dvCancel">투표 취소</button></div>`;
       $('dvClose').onclick = () => conn.send({ t: 'dayVoteClose' });
       $('dvCancel').onclick = () => conn.send({ t: 'dayVoteCancel' });
     } else {
       const r = dv.result;
-      const out = r.eliminated ? `⚖️ <b>${esc(nm(r.eliminated))}</b>님이 과반수로 죽었어요.` : r.reason === 'jesus' ? '✝️ 예수님이 과반수를 받았지만 죽지 않아요.' : `과반수(${r.threshold}표)를 넘긴 사람이 없어 사망자 없음`;
+      if (r.reason === 'tie') {
+        box.innerHTML = `<h2>🗳️ 아침 투표 결과 · 동률</h2>${tallyHtml(dv.ballots, dayW)}
+          <p class="announce">1등이 ${r.topN}표로 동률이에요. 누구를 죽일지 골라 주세요.${r.tie.length < r.rows.filter(x => x.n === r.topN).length ? ' (예수님은 아침 투표로 죽지 않아 후보에서 빠져요)' : ''}</p>
+          <div class="row">${r.tie.map(pid => `<button class="danger" data-pick="${pid}">${esc(nm(pid))} 죽이기</button>`).join('')}
+            <button data-pick="">아무도 안 죽음</button><button id="dvAgain">다시 투표</button></div>`;
+        box.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => conn.send({ t: 'dayVotePick', pid: b.dataset.pick || null }));
+        $('dvAgain').onclick = () => conn.send({ t: 'dayVoteOpen' });
+        return;
+      }
+      const out = r.eliminated ? `⚖️ <b>${esc(nm(r.eliminated))}</b>님이 ${r.reason === 'picked' ? '동률이라 운영자 선택으로' : '가장 많은 표를 받아'} 죽었어요.`
+        : r.reason === 'jesus' ? '✝️ 예수님이 가장 많이 받았지만 아침 투표로는 죽지 않아요.'
+        : r.reason === 'nopick' ? '동률이라 운영자가 "아무도 안 죽음"을 골랐어요.' : '표가 없어 사망자 없음';
       box.innerHTML = `<h2>🗳️ 아침 투표 결과</h2>${tallyHtml(dv.ballots, dayW)}<p>${out}</p>
         <div class="row"><button id="dvClear">결과 닫기</button><button id="dvAgain">다시 투표</button></div>`;
       $('dvClear').onclick = () => conn.send({ t: 'dayVoteCancel' });

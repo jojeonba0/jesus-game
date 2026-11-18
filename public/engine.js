@@ -180,30 +180,47 @@
     return null;
   }
 
-  // 아침 투표: 과반수를 얻은 1명만 사망. 예수님 표는 2표, 예수님은 아침 투표로 죽지 않음
+  // 아침 투표: 가장 많이 받은 1명 사망 (1표여도). 1등이 동률이면 운영자가 고름.
+  // 예수님 표는 2표, 예수님은 아침 투표로 죽지 않음
   const dayWeight = p => (p.role === 'jesus' ? 2 : 1);
+  function dayKill(room, pid, how) {
+    const p = byPid(room, pid);
+    p.alive = false;
+    addLog(room, `⚖️ 아침 투표로 사망${how}: ${p.name}(${ROLES[p.role].name})`);
+    afterElimination(room);
+  }
   function closeDayVote(room) {
     const dv = room.dayVote;
     if (!dv || !dv.open) return NOCHANGE;
     dv.open = false;
-    const total = room.players.filter(p => p.alive).reduce((a, p) => a + dayWeight(p), 0);
-    const threshold = Math.floor(total / 2) + 1;
     const tally = tallyOf(room, dv.ballots, dayWeight);
     const rows = Object.entries(tally).map(([pid, n]) => ({ pid, name: nameOf(room, pid), n })).sort((a, b) => b.n - a.n);
-    const top = rows[0];
-    let eliminated = null, reason = 'none';
-    if (top && top.n >= threshold) {
-      if (byPid(room, top.pid).role === 'jesus') reason = 'jesus';
-      else { eliminated = top.pid; reason = 'majority'; }
+    const topN = rows.length ? rows[0].n : 0;
+    const top = rows.filter(r => r.n === topN).map(r => r.pid);
+    let eliminated = null, reason = 'none', tie = null;
+    if (top.length === 1) {
+      if (byPid(room, top[0]).role === 'jesus') reason = 'jesus';
+      else { eliminated = top[0]; reason = 'top'; }
+    } else if (top.length > 1) {
+      tie = top.filter(pid => byPid(room, pid).role !== 'jesus'); // 운영자가 고를 후보 (예수님 제외)
+      reason = 'tie';
     }
-    dv.result = { rows, total, threshold, eliminated, reason };
-    addLog(room, `🗳️ 아침 투표 마감 (과반수 ${threshold}표): ${rows.map(r => `${r.name} ${r.n}표`).join(', ') || '표 없음'}`);
-    if (eliminated) {
-      const p = byPid(room, eliminated);
-      p.alive = false;
-      addLog(room, `⚖️ 아침 투표로 사망: ${p.name}(${ROLES[p.role].name})`);
-      afterElimination(room);
-    } else addLog(room, reason === 'jesus' ? '⚖️ 예수님은 아침 투표로 죽지 않아요 → 사망자 없음' : '⚖️ 과반수를 넘긴 사람이 없어 사망자 없음');
+    dv.result = { rows, eliminated, reason, tie, topN };
+    addLog(room, `🗳️ 아침 투표 마감: ${rows.map(r => `${r.name} ${r.n}표`).join(', ') || '표 없음'}`);
+    if (eliminated) dayKill(room, eliminated, '');
+    else if (reason === 'jesus') addLog(room, '⚖️ 예수님이 가장 많이 받았지만 아침 투표로는 죽지 않아요 → 사망자 없음');
+    else if (reason === 'tie') addLog(room, `⚖️ 1등 동률(${namesOf(room, top)}) → 운영자가 정해요`);
+    else addLog(room, '⚖️ 표가 없어 사망자 없음');
+    return null;
+  }
+  // 동률일 때 운영자가 선택 (pid 또는 null = 아무도 안 죽음)
+  function pickDayVote(room, pid) {
+    const r = room.dayVote && room.dayVote.result;
+    if (!r || r.reason !== 'tie') return NOCHANGE;
+    if (pid == null) { r.reason = 'nopick'; addLog(room, '⚖️ 동률 → 운영자가 "아무도 안 죽음"을 선택'); return null; }
+    if (!r.tie.includes(pid)) return '동률인 사람 중에서 골라 주세요.';
+    r.eliminated = pid; r.reason = 'picked';
+    dayKill(room, pid, ' (동률 → 운영자 선택)');
     return null;
   }
 
@@ -403,6 +420,7 @@
         if (room.status !== 'playing') return '게임 중이 아니에요.';
         if (room.phase === 'day') {
           if (room.dayVote && room.dayVote.open) return '아침 투표를 먼저 마감해 주세요.';
+          if (room.dayVote && room.dayVote.result && room.dayVote.result.reason === 'tie') return '아침 투표가 동률이에요. 누구를 죽일지 먼저 골라 주세요.';
           room.phase = 'night'; room.dayVote = null; room.night = newNight();
           for (const k of CHAT_KEYS) room.chats[k].push({ sys: true, text: `🌙 ${room.round}번째 밤이 시작되었습니다. 밤 투표도 열렸어요.`, ts: Date.now() });
           addLog(room, `🌙 ${room.round}번째 밤 (밤 투표 시작)`);
@@ -436,6 +454,7 @@
         addLog(room, '🗳️ 아침 투표 시작');
         return null;
       case 'dayVoteClose': return closeDayVote(room);
+      case 'dayVotePick': return pickDayVote(room, msg.pid == null ? null : String(msg.pid));
       case 'dayVoteCancel': room.dayVote = null; return null;
       case 'eliminate':
       case 'revive': {
