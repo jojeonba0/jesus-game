@@ -308,28 +308,36 @@ $('startBtn').onclick = async () => {
 };
 
 /* ---------------- 게임 ---------------- */
-// 제자가 모두 죽고 예수님만 남았는지 (예수님 팀) → 운영자에게만 팝업
-let aloneShown = false;
-function checkJesusAlone() {
+// 운영자에게만 띄우는 상황 알림: 처음 그 상황이 될 때 팝업 1번 + 상황이 이어지는 동안 경고 줄
+const alertShown = {};
+function checkAlerts() {
   const box = $('aloneBox');
+  const alive = r => S.players.filter(p => p.role === r && p.alive).length;
+  const had = r => S.players.some(p => p.role === r);
   const jesus = S.players.find(p => p.role === 'jesus');
-  const hadDisciples = S.players.some(p => p.role === 'disciple');
-  const alone = S.status === 'playing' && hadDisciples && jesus && jesus.alive && !S.players.some(p => p.role === 'disciple' && p.alive);
-  if (!alone) { aloneShown = false; box.classList.add('hidden'); return; }
-  const ph = S.players.filter(p => p.role === 'pharisee' && p.alive).length;
-  const tr = S.players.filter(p => p.role === 'traitor' && p.alive).length;
-  const msg = `제자가 모두 죽고 예수님(${jesus.name})만 남았어요.\n남은 사람: 바리새인 ${ph}명, 배신자 ${tr}명` +
-    (tr ? `\n바리새인까지 모두 죽으면 배신자가 이겨요.` : '');
-  box.innerHTML = `<b>⚠️ 제자 전멸 · 예수님만 남았어요</b><div class="muted" style="white-space:pre-line">${esc(msg)}</div>`;
-  box.classList.remove('hidden');
-  if (!aloneShown) {
-    aloneShown = true;
+  const playing = S.status === 'playing' && jesus && jesus.alive;
+  const ph = alive('pharisee'), tr = alive('traitor'), di = alive('disciple');
+  const alerts = [
+    { key: 'jesusAlone', on: playing && had('disciple') && di === 0,
+      title: '⚠️ 제자가 모두 죽었어요',
+      msg: `제자가 모두 죽고 예수님(${jesus && jesus.name})만 남았어요.\n남은 사람: 바리새인 ${ph}명, 배신자 ${tr}명` + (tr ? '\n바리새인까지 모두 죽으면 배신자가 이겨요.' : '') },
+    { key: 'traitorAlone', on: playing && had('pharisee') && ph === 0 && tr > 0,
+      title: '⚠️ 배신자만 남았어요',
+      msg: `바리새인이 모두 죽고 배신자만 남았어요.\n남은 사람: 예수님, 제자 ${di}명, 배신자 ${tr}명\n배신자가 모두 죽으면 예수님 팀이, 제자가 모두 죽으면 배신자가 이겨요.` },
+  ];
+  const active = alerts.filter(x => x.on);
+  alerts.forEach(x => { if (!x.on) alertShown[x.key] = false; });
+  box.classList.toggle('hidden', !active.length);
+  box.innerHTML = active.map(x => `<div><b>${esc(x.title)}</b><div class="muted" style="white-space:pre-line">${esc(x.msg)}</div></div>`).join('<hr style="border:0;border-top:1px solid var(--line)">');
+  const fresh = active.filter(x => !alertShown[x.key]);
+  if (fresh.length) {
+    fresh.forEach(x => { alertShown[x.key] = true; });
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-    notify(msg, '⚠️ 제자가 모두 죽었어요');
+    notify(fresh.map(x => x.msg).join('\n\n'), fresh.map(x => x.title).join(' · '));
   }
 }
 function renderGame() {
-  checkJesusAlone();
+  checkAlerts();
   const ended = S.status === 'ended';
   const wb = $('winBox');
   if (ended) {
