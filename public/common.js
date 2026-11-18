@@ -106,6 +106,21 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2600);
 }
 // 페이지 안에서 그리는 확인 창 (브라우저 confirm()은 일부 환경에서 막혀 있음)
+// 확인 버튼 하나짜리 알림 창
+function notify(message, title = '') {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.innerHTML = `<div class="modal-card" role="alertdialog" aria-modal="true">${title ? '<h2 style="margin:0 0 8px"></h2>' : ''}<p></p>
+      <div class="row" style="justify-content:flex-end"><button class="small primary">확인</button></div></div>`;
+    if (title) wrap.querySelector('h2').textContent = title;
+    wrap.querySelector('p').textContent = message;
+    const btn = wrap.querySelector('button');
+    btn.onclick = () => { wrap.remove(); resolve(); };
+    document.body.appendChild(wrap);
+    btn.focus();
+  });
+}
 function ask(message, okLabel = '확인', danger = false) {
   return new Promise(resolve => {
     const wrap = document.createElement('div');
