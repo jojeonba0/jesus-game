@@ -82,16 +82,17 @@
     return Object.keys(byN).map(Number).sort((a, b) => b - a).map(n => ({ n, pids: byN[n] }));
   }
   // 제자: 상위 n명 보호. 자리를 넘치는 동률은 빼고 보호 (예: 2명일 때 2등이 동률이면 1등만). 1등끼리 넘치면 1등 모두
+  // 자리를 넘치는 동률이 생기면 tie로 돌려줌 → 운영자가 그중에서 고름
   function pickProtect(tally, n) {
-    if (!(n > 0)) return [];
     const chosen = [];
+    if (!(n > 0)) return { chosen, tie: null };
     for (const grp of groupsOf(tally)) {
       const left = n - chosen.length;
       if (left <= 0) break;
       if (grp.pids.length <= left) chosen.push(...grp.pids);
-      else { if (!chosen.length) chosen.push(...grp.pids); break; }
+      else return { chosen, tie: { candidates: grp.pids.slice(), slots: left } };
     }
-    return chosen;
+    return { chosen, tie: null };
   }
   // 바리새인·배신자: 상위 slots명 사망 (기본 2명·1명). 자리를 넘치는 동률이 생기면 그 사람들끼리 재투표
   function pickKill(tally, slots) {
@@ -119,7 +120,10 @@
     if (!n || !n.open) return;
     n.open = false;
     const slots = slotsOf(room);
-    const protect = pickProtect(tallyOf(room, n.ballots.disciple), slots.disciple);
+    const pr = pickProtect(tallyOf(room, n.ballots.disciple), slots.disciple);
+    const protect = pr.chosen;
+    n.protectTie = pr.tie; // 제자 투표 동률 → 운영자가 고름
+    if (pr.tie) addLog(room, `🕊️ 제자 투표 동률: ${namesOf(room, pr.tie.candidates)} 중 ${pr.tie.slots}명 → 운영자가 정해요`);
     n.result = { protect, kills: { pharisee: [], traitor: [] } };
     for (const team of ['pharisee', 'traitor']) {
       const r = pickKill(tallyOf(room, n.ballots[team]), slots[team]);
@@ -161,7 +165,7 @@
     const n = room.night;
     if (!n) return null;
     closeNightVote(room);
-    if (n.runoff.pharisee || n.runoff.traitor) return RUNOFF; // 재투표가 남음 → 밤 유지
+    if (n.runoff.pharisee || n.runoff.traitor || n.protectTie) return RUNOFF; // 재투표·동률 선택이 남음 → 밤 유지
     const kills = [...new Set([...n.result.kills.pharisee, ...n.result.kills.traitor])];
     const jesus = room.players.find(p => p.role === 'jesus' && p.alive);
     let deaths = [];
@@ -270,7 +274,7 @@
         if (!count) v.nightVote = { kind: team, stage: 'off' };
         else if (n.open) v.nightVote = { kind: team, stage: 'vote', count, myVote: n.ballots[team][p.pid] || null, tally: tally(tallyOf(room, n.ballots[team])) };
         else if (r) v.nightVote = { kind: team, stage: 'runoff', candidates: r.candidates, slots: r.slots, myVote: r.ballots[p.pid] || null, tally: tally(tallyOf(room, r.ballots)) };
-        else v.nightVote = { kind: team, stage: 'closed' };
+        else v.nightVote = { kind: team, stage: 'closed', deciding: team === 'disciple' ? !!n.protectTie : false };
       }
     }
     return v;
@@ -447,6 +451,20 @@
         closeNightVote(room);
         return null;
       case 'runoffClose': return closeRunoffs(room, false);
+      case 'tiePick': { // 밤 투표 동률을 운영자가 직접 정함 (team: disciple/pharisee/traitor, pids: 고른 사람들)
+        const n = room.night;
+        if (!n || n.open) return '밤 투표를 먼저 마감해 주세요.';
+        const team = msg.team;
+        const tie = team === 'disciple' ? n.protectTie : (n.runoff || {})[team];
+        if (!tie) return '정할 동률이 없어요.';
+        const pids = [...new Set(Array.isArray(msg.pids) ? msg.pids.map(String) : [])];
+        if (pids.some(pid => !tie.candidates.includes(pid))) return '동률인 사람 중에서 골라 주세요.';
+        if (pids.length > tie.slots) return `${tie.slots}명까지만 고를 수 있어요.`;
+        if (team === 'disciple') { n.result.protect.push(...pids); n.protectTie = null; }
+        else { n.result.kills[team].push(...pids); n.runoff[team] = null; }
+        addLog(room, `✋ 운영자가 ${TEAM_NAME[team]} 동률을 정함: ${namesOf(room, pids) || '아무도 안 고름'}`);
+        return null;
+      }
       case 'runoffRandom': return closeRunoffs(room, true);
       case 'dayVoteOpen':
         if (room.status !== 'playing' || room.phase !== 'day') return '아침 투표는 낮에만 할 수 있어요.';
@@ -474,7 +492,7 @@
         const snap = h.pop();
         room.players.forEach(p => { if (p.pid in snap.alive) p.alive = snap.alive[p.pid]; });
         room.round = snap.round; room.jesusUsed = snap.jesusUsed; room.announce = snap.announce;
-        room.night = { ...snap.night, open: true, result: null, runoff: { pharisee: null, traitor: null } }; // 밤 투표 다시 열기 (기존 표 유지)
+        room.night = { ...snap.night, open: true, result: null, runoff: { pharisee: null, traitor: null }, protectTie: null }; // 밤 투표 다시 열기 (기존 표 유지)
         room.phase = 'night'; room.status = 'playing'; room.winner = null; room.endNote = null; room.dayVote = null;
         for (const k of CHAT_KEYS) room.chats[k].push({ sys: true, text: `↩️ 운영자가 ${room.round}번째 밤으로 되돌렸어요. 밤 투표가 다시 열렸어요.`, ts: Date.now() });
         addLog(room, `↩️ ${room.round}번째 밤(아침 발표 직전)으로 되돌림 · 그 뒤 사망은 취소, 밤 투표 다시 열림`);

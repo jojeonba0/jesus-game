@@ -316,13 +316,13 @@ function renderGame() {
     wb.classList.remove('hidden');
   } else wb.classList.add('hidden');
 
-  const runoff = S.night && (S.night.runoff.pharisee || S.night.runoff.traitor) && !S.night.open;
+  const runoff = S.night && (S.night.runoff.pharisee || S.night.runoff.traitor || S.night.protectTie) && !S.night.open;
   const dayVoting = S.dayVote && (S.dayVote.open || (S.dayVote.result && S.dayVote.result.reason === 'tie'));
   $('phaseBtn').disabled = ended || runoff || dayVoting;
   $('phaseBtn').textContent = S.phase === 'day' ? '🌙 밤으로 전환 (채팅·밤 투표 열기)'
-    : runoff ? '🔁 재투표 중 · 끝나야 아침으로 넘어가요' : '☀️ 아침으로 (밤 투표 마감 · 결과 바로 적용)';
+    : runoff ? '🔁 동률 정리 중 · 끝나야 아침으로 넘어가요' : '☀️ 아침으로 (밤 투표 마감 · 결과 바로 적용)';
   $('phaseHint').textContent = ended ? '' : dayVoting ? (S.dayVote.open ? '아침 투표를 먼저 마감해 주세요.' : '아침 투표가 동률이에요. 누구를 죽일지 먼저 골라 주세요.')
-    : runoff ? '동률이 나와 재투표가 필요해요. 오른쪽에서 재투표를 마감하거나 무작위로 정하면 아침으로 넘길 수 있어요.'
+    : runoff ? '동률이 나왔어요. 오른쪽에서 직접 고르거나, 재투표를 마감하거나, 무작위로 정하면 아침으로 넘길 수 있어요.'
     : S.phase === 'night' ? `지금은 ${S.round}번째 밤 · 넘기는 순간 투표가 마감되고 결과가 바로 적용돼요. 아직 투표 안 한 사람의 표는 빠져요. (동률이면 재투표가 열리고 밤이 계속돼요)`
     : S.phase === 'day' ? `지금은 ${S.round}번째 낮 · 직접 대화하고 아침 투표를 하는 시간이에요.`
     : `지금은 ${S.round}번째 밤 · 팀 채팅과 밤 투표 중이에요. 아침으로 넘기면 투표가 마감되고 결과가 발표돼요.`;
@@ -347,6 +347,7 @@ function renderGame() {
   $('logList').scrollTop = $('logList').scrollHeight;
 }
 
+const tiePicks = {}; // 밤 동률에서 운영자가 고르는 중인 사람들
 const nm = pid => (S.players.find(p => p.pid === pid) || {}).name || '?';
 // 표 현황: 받은 사람별로 묶고, 누가 찍었는지 함께 (운영자만 봄)
 function tallyHtml(ballots, weightOf, only) {
@@ -425,18 +426,45 @@ function renderVote() {
       <p>🕊️ 제자 보호: <b>${r.protect.map(nm).map(esc).join(', ') || '없음'}</b></p>
       <p>📜 바리새인 지목: <b>${r.kills.pharisee.map(nm).map(esc).join(', ') || '없음'}</b></p>
       <p>🪙 배신자 지목: <b>${r.kills.traitor.map(nm).map(esc).join(', ') || '없음'}</b></p></div>`;
+    // 동률: 운영자가 직접 고르기 (제자=보호, 바리새인·배신자=사망). 바리새인·배신자는 재투표도 함께 진행
+    const pickBox = (team, tie, verb) => {
+      const key = team + ':' + tie.candidates.join(',');
+      if (!tiePicks[team] || tiePicks[team].key !== key) tiePicks[team] = { key, set: new Set() };
+      const sel = tiePicks[team].set;
+      return `<div class="row" style="margin:6px 0">${tie.candidates.map(pid => `<button class="small ${sel.has(pid) ? 'sel primary' : ''}" data-tp="${team}" data-pid="${pid}">${esc(nm(pid))}</button>`).join('')}</div>
+        <button class="${team === 'disciple' ? 'primary' : ''}" data-tpok="${team}">✋ ${sel.size ? `선택한 ${sel.size}명 ${verb}` : `아무도 안 고르고 정하기`}</button>`;
+    };
+    if (n.protectTie) {
+      const t = n.protectTie;
+      html += `<div class="vote-sec"><h3 style="margin:0 0 4px">🕊️ 제자 투표 동률 · 운영자가 정해요</h3>
+        <p class="muted" style="margin:0 0 4px">남은 보호 자리 ${t.slots}개에 ${t.candidates.length}명이 동률이에요. 살릴 사람을 ${t.slots}명까지 골라 주세요.</p>
+        ${pickBox('disciple', t, '살리기')}</div>`;
+    }
     const runoffs = ['pharisee', 'traitor'].filter(k => n.runoff[k]);
     runoffs.forEach(k => {
       const ro = n.runoff[k];
-      html += sec(`🔁 ${k === 'pharisee' ? '바리새인' : '배신자'} 재투표 (${ro.slots}명 선택)`, ro.ballots, `후보: ${ro.candidates.map(nm).map(esc).join(', ')}`);
+      html += sec(`🔁 ${k === 'pharisee' ? '바리새인' : '배신자'} 동률 (${ro.slots}명 선택)`, ro.ballots,
+        `후보: ${ro.candidates.map(nm).map(esc).join(', ')} · 팀이 재투표 중이에요. 운영자가 바로 골라도 돼요.`)
+        + pickBox(k, ro, '죽이기');
     });
-    if (runoffs.length) html += `<div class="row" style="margin-top:12px"><button class="primary" id="roClose">재투표 마감</button><button id="roRandom">동률 무작위로 정하기</button></div>`;
-    else html += `<p class="announce">아침에 발표될 결과: ${dies.length ? `${dies.map(nm).map(esc).join(', ')} 사망` : '아무도 죽지 않음'}${n.jesusCancel ? ' (예수님 능력)' : ''}</p>`;
+    if (runoffs.length) html += `<div class="row" style="margin-top:12px"><button id="roClose">재투표 마감</button><button id="roRandom">동률 무작위로 정하기</button></div>`;
+    if (!runoffs.length && !n.protectTie) html += `<p class="announce">아침에 발표될 결과: ${dies.length ? `${dies.map(nm).map(esc).join(', ')} 사망` : '아무도 죽지 않음'}${n.jesusCancel ? ' (예수님 능력)' : ''}</p>`;
   }
   box.innerHTML = html;
   if ($('nvClose')) $('nvClose').onclick = () => conn.send({ t: 'nightClose' });
   if ($('roClose')) $('roClose').onclick = () => conn.send({ t: 'runoffClose' });
   if ($('roRandom')) $('roRandom').onclick = () => conn.send({ t: 'runoffRandom' });
+  box.querySelectorAll('[data-tp]').forEach(b => b.onclick = () => {
+    const team = b.dataset.tp, sel = tiePicks[team].set, tie = team === 'disciple' ? S.night.protectTie : S.night.runoff[team];
+    if (sel.has(b.dataset.pid)) sel.delete(b.dataset.pid);
+    else if (sel.size < tie.slots) sel.add(b.dataset.pid);
+    else toast(`${tie.slots}명까지만 고를 수 있어요.`);
+    renderVote();
+  });
+  box.querySelectorAll('[data-tpok]').forEach(b => b.onclick = () => {
+    const team = b.dataset.tpok;
+    conn.send({ t: 'tiePick', team, pids: [...tiePicks[team].set] });
+  });
 }
 
 const CHAT_TABS = [['jesus', '✝️ 예수님·제자'], ['pharisee', '📜 바리새인'], ['traitor', '🪙 배신자']];

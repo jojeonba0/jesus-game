@@ -226,7 +226,7 @@ function nightHtml(nv) {
       ${voteGrid(S.players.filter(p => nv.candidates.includes(p.pid)), nv.myVote, 'night')}${team}</div>`;
   }
   if (nv.stage === 'off') return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">이번 게임에서는 ${esc(ROLE_INFO[nv.kind].name)}의 밤 투표가 없어요.</p></div>`;
-  return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">밤 투표가 마감됐어요. 아침에 결과가 발표돼요.</p></div>`;
+  return `<div class="vote-sec"><h2>${NIGHT_TITLE[nv.kind]}</h2><p class="muted">${nv.deciding ? '동률이 나와서 운영자가 정하고 있어요. 정해지면 아침이 와요.' : '밤 투표가 마감됐어요. 아침에 결과가 발표돼요.'}</p></div>`;
 }
 function renderVote() {
   const box = $('voteBox'), parts = [];

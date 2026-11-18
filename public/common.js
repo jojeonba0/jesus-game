@@ -16,8 +16,8 @@ const ROLE_INFO = {
 // 밤 투표 규칙 문장 (인원 n명 기준)
 function slotRule(kind, n) {
   const who = { disciple: '제자', pharisee: '바리새인', traitor: '배신자' }[kind];
-  if (kind === 'disciple') return `${who} 표를 가장 많이 받은 ${n}명은 그날 밤 죽지 않아요. (${n === 1 ? '1등이 동률이면 1등 모두' : `${n}등이 동률이면 그 사람들은 빼고`})`;
-  return `${who} 표를 가장 많이 받은 ${n}명이 그날 밤 죽어요. (${n}등이 동률이면 그 사람들끼리 재투표)`;
+  if (kind === 'disciple') return `${who} 표를 가장 많이 받은 ${n}명은 그날 밤 죽지 않아요. (동률이면 운영자가 정해요)`;
+  return `${who} 표를 가장 많이 받은 ${n}명이 그날 밤 죽어요. (동률이면 그 사람들끼리 재투표하거나 운영자가 정해요)`;
 }
 const WIN_INFO = {
   jesus: { text: '예수님과 제자들의 승리!', emoji: '✝️' },
